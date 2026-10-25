@@ -23,56 +23,50 @@ export interface Palette {
   tint: Record<'pink' | 'yellow' | 'blue' | 'green' | 'lilac' | 'peach', { bg: string; ink: string }>;
 }
 
-const lightTints = {
-  pink: { bg: '#FFD9E8', ink: '#9B2C5A' },
-  yellow: { bg: '#FFEDB3', ink: '#8A6410' },
-  blue: { bg: '#CDEEFF', ink: '#1F6A93' },
-  green: { bg: '#D3F5A8', ink: '#3D7A12' },
-  lilac: { bg: '#E6DCFF', ink: '#5B3FA8' },
-  peach: { bg: '#FFE0CC', ink: '#A24A1B' },
+// one vivid set for both themes: saturated blocks with black ink, like stickers on a plain page
+const vivid = {
+  pink: { bg: '#F670C4', ink: '#1A0A14' },
+  yellow: { bg: '#FFD85E', ink: '#1F1700' },
+  blue: { bg: '#8FA1FB', ink: '#0B1033' },
+  green: { bg: '#9EE6A0', ink: '#06210A' },
+  lilac: { bg: '#B9A0FB', ink: '#1A1033' },
+  peach: { bg: '#FDB155', ink: '#2A1500' },
 };
-
-const darkTints = {
-  pink: { bg: '#3A2230', ink: '#FF9CC4' },
-  yellow: { bg: '#38301A', ink: '#F4CB62' },
-  blue: { bg: '#1D3140', ink: '#7CCBF5' },
-  green: { bg: '#23331A', ink: '#A6DE6B' },
-  lilac: { bg: '#2D2640', ink: '#B9A3FF' },
-  peach: { bg: '#3A281E', ink: '#FFB188' },
-};
+const lightTints = vivid;
+const darkTints = vivid;
 
 export const light: Palette = {
-  bg: '#F7F6F3',
-  card: '#FFFFFF',
-  cardAlt: '#F0EEE9',
-  text: '#17171B',
-  muted: '#7B7B86',
-  border: '#E8E6E0',
-  accent: '#17171B',
+  bg: '#FFFFFF',
+  card: '#F4F0FE',
+  cardAlt: '#ECE6FB',
+  text: '#0A0A0C',
+  muted: '#6F6B80',
+  border: '#E5DFF5',
+  accent: '#0A0A0C',
   onAccent: '#FFFFFF',
-  danger: '#D14B4B',
-  ok: '#2E9B5F',
-  warn: '#B97D12',
-  info: '#2F7FB5',
-  tabBar: '#FFFFFF',
+  danger: '#E5484D',
+  ok: '#1F9D63',
+  warn: '#C77A0A',
+  info: '#4F5FD9',
+  tabBar: '#0A0A0C',
   dark: false,
   tint: lightTints,
 };
 
 export const dark: Palette = {
-  bg: '#111114',
-  card: '#1A1A1F',
-  cardAlt: '#232329',
-  text: '#F1F1F4',
-  muted: '#9A9AA6',
-  border: '#2B2B33',
-  accent: '#F1F1F4',
-  onAccent: '#111114',
-  danger: '#FF6B6B',
-  ok: '#4CC78A',
-  warn: '#E9B44C',
-  info: '#6DB8EA',
-  tabBar: '#16161A',
+  bg: '#000000',
+  card: '#131216',
+  cardAlt: '#1D1B22',
+  text: '#FFFFFF',
+  muted: '#A19DB3',
+  border: '#27242F',
+  accent: '#FFFFFF',
+  onAccent: '#000000',
+  danger: '#FF6B70',
+  ok: '#4CD08F',
+  warn: '#F0B14A',
+  info: '#9AA8FF',
+  tabBar: '#FFFFFF',
   dark: true,
   tint: darkTints,
 };
@@ -100,21 +94,22 @@ export function usePalette(_mode?: Mode): Palette {
   return wantDark ? dark : light;
 }
 
-export const radius = { sm: 10, md: 14, lg: 20, xl: 26, pill: 999 };
+export const radius = { sm: 10, md: 14, lg: 24, xl: 28, pill: 999 };
 
 export const space = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24 };
 
 export const fonts = {
-  regular: 'Lexend_400Regular',
-  medium: 'Lexend_500Medium',
-  semibold: 'Lexend_600SemiBold',
+  regular: 'Poppins_400Regular',
+  medium: 'Poppins_500Medium',
+  semibold: 'Poppins_600SemiBold',
+  bold: 'Poppins_700Bold',
 } as const;
 
 export const severityColor = (p: Palette, s: string) => (s === 'severe' ? p.danger : s === 'warning' ? p.warn : s === 'watch' ? p.info : p.muted);
 
 // kept for the few places that still use the old kid colour names
 export const kid = {
-  ink: '#17171B',
-  orange: '#17171B',
-  bg: '#F7F6F3',
+  ink: '#0A0A0C',
+  orange: '#0A0A0C',
+  bg: '#FFFFFF',
 };

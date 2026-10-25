@@ -24,32 +24,35 @@ export function AlertCard({ a, compact }: { a: AlertItem; compact?: boolean }) {
   const t = useT();
   const lang = useSettings((s) => s.lang);
   const color = severityColor(p, a.severity);
+  // alerts are sticker cards: severe=pink, warn=peach, watch=blue, info=lilac
+  const tint = a.severity === 'severe' ? 'pink' : a.severity === 'warning' ? 'peach' : a.severity === 'watch' ? 'blue' : 'lilac';
+  const ink = p.tint[tint].ink;
   return (
-    <Card style={{ gap: 6, padding: 12 }}>
+    <Card tint={tint} style={{ gap: 6, padding: 16 }}>
       <Row style={{ alignItems: 'flex-start', gap: 10 }}>
-        <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: color + '22', alignItems: 'center', justifyContent: 'center' }}>
-          <Icon name={iconFor(a)} size={16} color={color} />
+        <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: ink, alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name={iconFor(a)} size={17} color={p.tint[tint].bg} />
         </View>
         <View style={{ flex: 1, gap: 3 }}>
           <Row style={{ gap: 6, flexWrap: 'wrap' }}>
-            <Badge soft label={t(a.severity).toUpperCase()} color={color} />
-            <Badge soft label={a.trust === 'official' ? t('verifiedOfficial') : t('unverified')} color={a.trust === 'official' ? p.ok : p.muted} />
+            <Badge soft label={t(a.severity).toUpperCase()} color={ink} />
+            <Badge soft label={a.trust === 'official' ? t('verifiedOfficial') : t('unverified')} color={ink} />
           </Row>
-          <Txt size={15} weight="600">
+          <Txt size={16} weight="700" color={ink}>
             {a.title}
           </Txt>
           {!compact ? (
-            <Txt size={13} color={p.muted}>
+            <Txt size={13} color={ink}>
               {a.body}
             </Txt>
           ) : null}
-          <Txt size={11} color={p.muted}>
+          <Txt size={11} color={ink}>
             {a.source}
           </Txt>
         </View>
         {!compact ? (
-          <Press accessibilityLabel={t('readAloud')} onPress={() => void speak(`${a.title}. ${a.body}`, lang, 'veer')} style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: p.cardAlt, alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="speaker" size={14} color={p.muted} />
+          <Press accessibilityLabel={t('readAloud')} onPress={() => void speak(`${a.title}. ${a.body}`, lang, 'veer')} style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: ink, alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="speaker" size={14} color={p.tint[tint].bg} />
           </Press>
         ) : null}
       </Row>

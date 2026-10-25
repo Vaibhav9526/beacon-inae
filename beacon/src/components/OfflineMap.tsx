@@ -6,6 +6,7 @@ import { type Nearby, type PlaceKind, compassWord, formatDistance, nearest, proj
 import { type Fix, getFix, watchFix } from '../services/location';
 import { useMap } from '../services/maps';
 import { radius } from '../theme';
+import { Flower } from './Deco';
 import { Icon, type IconName } from './Icon';
 import { Skeleton, SkeletonList } from './Skeleton';
 import { Appear, Btn, Card, Chip, Press, Row, Txt, useTheme } from './ui';
@@ -14,6 +15,9 @@ export const PLACE_ICON: Record<PlaceKind, IconName> = { shelter: 'tent', hospit
 const PLACE_LABEL: Record<PlaceKind, 'shelter' | 'hospital' | 'water' | 'police' | 'pharmacy' | 'fire'> = { shelter: 'shelter', hospital: 'hospital', water: 'water', police: 'police', pharmacy: 'pharmacy', fire: 'fire', school: 'shelter' };
 const FILTERS: PlaceKind[] = ['shelter', 'hospital', 'water', 'police', 'pharmacy'];
 const PIN: Record<PlaceKind, string> = { shelter: '#2E9B5F', hospital: '#D14B4B', water: '#2F7FB5', police: '#5B3FA8', pharmacy: '#B97D12', fire: '#C2571A', school: '#7B7B86' };
+
+/** sticker tint for each kind of place in the nearest list */
+const PLACE_TINT: Record<PlaceKind, 'green' | 'pink' | 'blue' | 'lilac' | 'yellow' | 'peach'> = { shelter: 'green', hospital: 'pink', water: 'blue', police: 'lilac', pharmacy: 'yellow', fire: 'peach', school: 'lilac' };
 
 const ROAD_STYLE = [
   { w: 3.6, c: '#E9B44C' },
@@ -99,7 +103,7 @@ export function OfflineMap({ initialPlace, height = 340 }: { initialPlace?: Plac
 
   return (
     <View style={{ gap: 12 }}>
-      <View style={{ height, width: size, alignSelf: 'center', borderRadius: radius.lg, overflow: 'hidden', backgroundColor: land, borderWidth: 1, borderColor: p.border }} {...responder.panHandlers}>
+      <View style={{ height, width: size, alignSelf: 'center', borderRadius: 24, overflow: 'hidden', backgroundColor: land }} {...responder.panHandlers}>
         {area && geometry ? (
           <Svg width={size} height={height} viewBox={`0 0 ${size} ${height}`}>
             <G translateX={pan.x} translateY={pan.y - (size - height) / 2}>
@@ -135,17 +139,22 @@ export function OfflineMap({ initialPlace, height = 340 }: { initialPlace?: Plac
             </G>
           </Svg>
         ) : (
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20, gap: 10 }}>
-            <Icon name="map" size={26} color={p.muted} />
-            <Txt size={13} color={p.muted} style={{ textAlign: 'center' }}>
-              {t('noPlaces')}
-            </Txt>
-            <Btn label={downloading ? t('downloading') : t('downloadArea')} icon="download" size="sm" onPress={() => void download()} disabled={downloading} />
-            {error ? (
-              <Txt size={12} color={p.danger}>
-                {error}
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+            <Card tint="blue" style={{ overflow: 'hidden', width: '100%', alignItems: 'center', gap: 10, paddingTop: 48, paddingBottom: 18 }}>
+              <View pointerEvents="none" style={{ position: 'absolute', right: -12, top: -14, transform: [{ rotate: '12deg' }] }}>
+                <Flower size={84} />
+              </View>
+              <Icon name="map" size={26} color={p.tint.blue.ink} />
+              <Txt size={13} color={p.tint.blue.ink} style={{ textAlign: 'center' }}>
+                {t('noPlaces')}
               </Txt>
-            ) : null}
+              <Btn label={downloading ? t('downloading') : t('downloadArea')} icon="download" size="sm" onPress={() => void download()} disabled={downloading} />
+              {error ? (
+                <Txt size={12} color={p.tint.blue.ink}>
+                  {error}
+                </Txt>
+              ) : null}
+            </Card>
           </View>
         )}
         {area ? (
@@ -179,24 +188,24 @@ export function OfflineMap({ initialPlace, height = 340 }: { initialPlace?: Plac
               return (
                 <Appear key={`${pl.lat}-${pl.lon}`} index={i}>
                   <Press onPress={() => setTarget(pl)}>
-                    <Card style={{ padding: 10, borderColor: hot ? p.text : p.border }}>
+                    <Card tint={PLACE_TINT[pl.kind]} style={{ padding: 12, borderRadius: 24, borderWidth: hot ? 2 : 0, borderColor: p.text }}>
                       <Row style={{ gap: 12 }}>
-                        <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: PIN[pl.kind] + '22', alignItems: 'center', justifyContent: 'center' }}>
-                          <Icon name={PLACE_ICON[pl.kind]} size={16} color={PIN[pl.kind]} />
+                        <View style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: p.tint[PLACE_TINT[pl.kind]].ink, alignItems: 'center', justifyContent: 'center' }}>
+                          <Icon name={PLACE_ICON[pl.kind]} size={16} color={p.tint[PLACE_TINT[pl.kind]].bg} />
                         </View>
                         <View style={{ flex: 1 }}>
-                          <Txt size={14} weight="500" numberOfLines={1}>
+                          <Txt size={14} weight="600" numberOfLines={1} color={p.tint[PLACE_TINT[pl.kind]].ink}>
                             {pl.name}
                           </Txt>
-                          <Txt size={11.5} color={p.muted}>
+                          <Txt size={11.5} color={p.tint[PLACE_TINT[pl.kind]].ink} style={{ opacity: 0.8 }}>
                             {t(PLACE_LABEL[pl.kind])}
                           </Txt>
                         </View>
                         <View style={{ alignItems: 'flex-end' }}>
-                          <Txt size={14} weight="600">
+                          <Txt size={14} weight="700" color={p.tint[PLACE_TINT[pl.kind]].ink}>
                             {formatDistance(pl.distanceM)}
                           </Txt>
-                          <Txt size={11} color={p.muted}>
+                          <Txt size={11} color={p.tint[PLACE_TINT[pl.kind]].ink} style={{ opacity: 0.8 }}>
                             {compassWord(pl.bearing)}
                           </Txt>
                         </View>

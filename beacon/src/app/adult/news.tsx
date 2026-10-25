@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Image, View } from 'react-native';
 import { AlertCard } from '../../components/AlertCard';
+import { Bell } from '../../components/Deco';
 import { Icon } from '../../components/Icon';
 import { Screen } from '../../components/Screen';
 import { SkeletonList } from '../../components/Skeleton';
@@ -13,6 +14,9 @@ import { type NewsCard, type ReportView, cloud, cloudConfigured } from '../../se
 import { getFix } from '../../services/location';
 import { vote } from '../../services/reports';
 import { severityColor } from '../../theme';
+
+/** ink colour for text on the tinted news cards */
+const INK = '#0A0A0C';
 
 const CACHE = 'beacon.news.v1';
 const ago = (ts: number) => {
@@ -91,19 +95,19 @@ export default function News() {
       {tab === 'news' &&
         feed.map((c, i) => (
           <Appear key={c.id} index={i}>
-            <Card style={{ padding: 0, overflow: 'hidden' }}>
+            <Card tint={c.severity === 'severe' ? 'pink' : c.severity === 'warning' ? 'peach' : c.severity === 'watch' ? 'blue' : 'lilac'} style={{ padding: 0, overflow: 'hidden' }}>
               {c.mediaUrl ? <Image source={{ uri: cloud.mediaUrl(c.mediaUrl) }} style={{ width: '100%', height: 160, backgroundColor: p.cardAlt }} resizeMode="cover" /> : null}
-              <View style={{ padding: 14, gap: 6 }}>
+              <View style={{ padding: 16, gap: 6 }}>
                 <Row style={{ justifyContent: 'space-between' }}>
-                  {c.severity ? <Badge soft label={t(c.severity as 'severe').toUpperCase()} color={severityColor(p, c.severity)} /> : badge(c.badge)}
-                  <Txt size={11} color={p.muted}>
+                  {c.severity ? <Badge soft label={t(c.severity as 'severe').toUpperCase()} color={INK} /> : badge(c.badge)}
+                  <Txt size={11} color={INK}>
                     {c.source} · {ago(c.ts)}
                   </Txt>
                 </Row>
-                <Txt size={16} weight="600">
+                <Txt size={18} weight="700" color={INK}>
                   {c.title}
                 </Txt>
-                <Txt size={13.5} color={p.muted}>
+                <Txt size={13.5} color={INK}>
                   {c.summary}
                 </Txt>
               </View>
@@ -115,7 +119,14 @@ export default function News() {
         <Appear key={a.id} index={i}>
           <AlertCard a={a} />
         </Appear>
-      )) : <Txt size={13} color={p.muted}>{t('noAlerts')}</Txt>)}
+      )) : (
+        <Card tint="lilac" style={{ overflow: 'hidden', minHeight: 130, justifyContent: 'center', paddingRight: 96 }}>
+          <Txt size={16} weight="700" color={p.tint.lilac.ink}>{t('noAlerts')}</Txt>
+          <View pointerEvents="none" style={{ position: 'absolute', right: -12, top: -14, transform: [{ rotate: '12deg' }] }}>
+            <Bell size={88} />
+          </View>
+        </Card>
+      ))}
 
       {tab === 'reports' && (
         <>
@@ -124,9 +135,9 @@ export default function News() {
           {loading && reports.length === 0 ? <SkeletonList n={2} /> : null}
           {reports.map((r, i) => (
             <Appear key={r.id} index={i}>
-              <Card style={{ padding: 0, overflow: 'hidden' }}>
+              <Card tint="yellow" style={{ padding: 0, overflow: 'hidden' }}>
                 <Image source={{ uri: cloud.mediaUrl(r.thumbUrl ?? r.mediaUrl) }} style={{ width: '100%', height: 230, backgroundColor: p.cardAlt }} resizeMode="cover" />
-                <View style={{ padding: 14, gap: 8 }}>
+                <View style={{ padding: 16, gap: 8 }}>
                   <Row style={{ justifyContent: 'space-between' }}>
                     {badge(r.badge)}
                     {r.kind === 'video' ? <Icon name="playTri" size={13} color={p.muted} /> : null}

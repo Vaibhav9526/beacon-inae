@@ -1,0 +1,39 @@
+# Similar projects: disaster-readiness and offline messaging (research)
+
+Scope: 18 projects seen in search results during this pass. Each row is based on search snippets and the linked pages' summaries, not full page reads. Hackathon "winner" claims are self-reported unless noted. Reddit and Hacker News searches returned no direct r/selfhosted or Show HN thread for a disaster app, so those entries come from other sources.
+
+| # | Name | URL | What it does | Audience | Notable feature | What Beacon could learn (idea only) |
+|---|---|---|---|---|---|---|
+| 1 | Bitchat (Jack Dorsey) | https://www.outlookbusiness.com/technology/jack-dorsey-launches-bitchat-app-for-offline-decentralised-messaging-via-bluetooth | Offline, encrypted BLE mesh chat with store-and-forward | General public, protest and outage use | No phone number or account needed; messages expire by default | Account-free onboarding; keep ephemeral message defaults |
+| 2 | Bridgefy | https://apps.apple.com/app/bridgefy/id975776347 | BLE device-to-device chat with a mesh relay mode | Festivals, protests, disasters | Three modes: one-to-one, mesh relay, broadcast to nearby strangers | Explicit "broadcast to nearby" mode for SOS; SDK for other apps |
+| 3 | Crisis Connect | https://crisisconnect.network (source: https://github.com/emirhan-duman/Crisis-Connect) | Open-source offline Bluetooth messaging with voice notes, live location and SOS | Public; a solo developer's project | Open source, on Android and iOS | Closest open-source peer to Beacon's SOS and I-am-safe; compare its SOS payload design |
+| 4 | FireChat disaster alerts (2016) | https://tagteam.harvard.edu/hub_feeds/3633/feed_items/2187446 | Planned licensed disaster alerts over its offline chat, built with the Red Cross and two Philippine agencies | Governments and aid groups | Area-limited alerts that expire in 1-2 hours | Time-limited, geofenced alerts are a good model for Beacon's early-warning feed |
+| 5 | Meshtastic | https://www.linux-magazine.com/Issues/2025/299/Meshtastic | LoRa mesh radios with an Android companion app for off-grid text | Hobbyists, preppers, outreach teams | Works without cell service; range extended by relays | Hardware bridge option for Beacon's mesh when BLE range is too short |
+| 6 | Sachet (NDMA) | https://www.vikaspedia.in/social-welfare/disaster-management-1/national-disaster-alert-portal | Official national disaster alert app and portal (CAP-based), with SMS alerts | Indian citizens | Area-specific alerts from IMD, CWC and INCOIS; read-aloud; 12 languages | Official source to ingest or align with; see the Indian section below |
+| 7 | Mausam (IMD) | https://mausam.imd.gov.in | IMD weather app: observations, forecasts, radar, warnings | Indian citizens, farmers | Access to IMD products on mobile | Use IMD warning feeds as a trusted source in Beacon's early-warning module |
+| 8 | Damini (IMD / IITM Pune / ESSO) | https://journalsofindia.com/mausam-meghdoot-and-damini-apps-of-imd/ | GPS-based lightning alerts from the IMD lightning network | Rural and outdoor users | Alert radii of 20 km and 40 km with safety guidance | Radius-based alert tiers and lightning-specific safety text |
+| 9 | Google Android Earthquake Alerts | https://www.freepressjournal.in/tech/googles-android-earthquake-alerts-sent-warnings-seconds-before-venezuela-tremors-struck-heres-how-it-works | Phone accelerometers, crowd-confirmed, with ShakeAlert in the US West Coast | All Android users | Two-tier "Be Aware" and "Take Action" alerts | Two-tier alert wording; confirm a single device's report with nearby reports before alerting |
+| 10 | Google Person Finder | https://personfinder.google.org/ | Web tool for posting and finding missing people after disasters | Families, responders | Open PFIF data standard; anyone can run an instance | Reunification data model and PFIF-style export; Beacon's family module could interoperate |
+| 11 | Sahayog (SIH 2024, finalist) | https://anshul.is-a.dev/projects/sahayog/ | Real-time disaster information platform | Citizens and authorities | Listed as a finalist, not a confirmed winner | Hackathon peer; check its feature list for overlap |
+| 12 | i-RISE (UP SysTeam, Google Solution Challenge 2021 top 3) | https://publicservice.up.edu.ph/up-students-disaster-risk-management-system-wins-googles-solution-challenge/ | Island disaster dashboard: tide and weather info, evacuation plans, rescue requests | Island LGUs and residents | Two-way rescue requests from the same dashboard | Two-way request flow for rescue, similar to Beacon's SOS |
+| 13 | Call for Code (IBM) winners: Project Owl (2018), Prometeo (2019) | https://www.callforcode.org | Open-source disaster projects; Owl was piloted in Kerala and Puerto Rico | Developers, responders | Prize plus IBM and Linux Foundation support | Open-source deployment path and pilot partners |
+| 14 | nRFHub (Hackster) | https://www.hackster.io/524195/nrfhub-emergency-response-for-rural-india-a61503 | LoRa alert system for rural India with no mobile coverage | Rural communities | Solar-powered nRF54L15 and SX1278 hardware | Low-cost, no-network alert node idea for Beacon's hub |
+| 15 | BePrepared (Product Hunt) | https://www.producthunt.com/p/beprepared/beprepared | Personal emergency plan built from federal hazard data, with live alerts and kits | US households | Location-specific plan from hazard data | Generated, location-specific family plan from hazard data |
+| 16 | PrepperApp (Product Hunt) | https://www.producthunt.com/p/prepperapp | Emergency numbers, offline maps, mesh messaging, family check-ins | Preppers, families | One-time purchase, no subscription | Offline emergency numbers per region; pricing model contrast |
+| 17 | Bracewise (Product Hunt) | https://www.producthunt.com/p/bracewise | Live alerts from NWS, USGS and NIFC with AI-made checklists | US households | AI-generated hazard checklists | Hazard checklists generated from live alerts for Beacon's drills module |
+| 18 | Pacific Disaster Center Disaster Alert | https://www.pdc.org/disaster-alert-free-mobile-app-makes-another-splash-with-version-4-2/ | Free multi-hazard alert app | General public | Users' top request: custom push by geography and severity | Let users set geography and severity thresholds for push alerts |
+
+## Official Indian apps Beacon should interoperate with or differ from
+
+1. Sachet (NDMA) is the official CAP-based alert channel; Beacon should ingest its feeds, not compete with it.
+2. Sachet sends area-specific alerts from IMD, CWC and INCOIS and already reads alerts aloud in 12 languages; Beacon's Hindi and English focus should complement that.
+3. Mausam and Damini (IMD) cover weather and lightning; Beacon can pull IMD warnings as a source and show them with offline context.
+4. Sachet and Mausam need connectivity; Beacon's differentiator is offline-first, so cache the last official alerts on device.
+5. Official apps send one-way alerts; Beacon adds two-way SOS, I-am-safe and mesh relay, which the government apps do not do.
+6. Use CAP-style alert fields in Beacon's internal model so official feeds map without rewriting.
+7. Google Person Finder (PFIF) is the reunification data standard; Beacon's family module can export and import it.
+8. Keep Beacon's kid and parent modes separate from official alerting, since those audiences need different defaults.
+9. Do not present Beacon's AI-verified reports as official government alerts; label them as citizen reports.
+10. Check each official app's current availability and data terms before any integration, since this research used snippets only.
+
+Verification gaps: no Product Hunt or Hacker News pages were opened directly; SIH winner status for Sahayog and the SIH 2018 and 2020 entries is unconfirmed; the Android Earthquake Alerts country count differs across sources.

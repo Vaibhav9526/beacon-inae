@@ -5,6 +5,7 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { dirname, extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { HubApp } from './app.ts';
+import { toCap } from './cap.ts';
 
 const UI = join(dirname(fileURLToPath(import.meta.url)), '..', 'ui');
 const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.png': 'image/png' };
@@ -58,6 +59,14 @@ export function startHttp(app: HubApp, opts: { port?: number; token?: string; pa
       let r: RegExpMatchArray | null;
 
       if (m === 'GET' && p === '/api/state') return send(200, app.state());
+      if (m === 'GET' && p === '/api/situation') return send(200, app.situation());
+      if (m === 'GET' && (r = p.match(/^\/api\/cap\/([\w-]+)$/))) {
+        const al = app.hub.alerts().find((x) => x.id === r![1]);
+        if (!al) return send(404, { error: 'no alert' });
+        const place = app.hub.agents().find((x) => x.id === al.signals[0]?.agentId)?.place?.name;
+        res.writeHead(200, { 'content-type': 'application/xml; charset=utf-8', 'cache-control': 'no-store' });
+        return void res.end(toCap(al, { sender: 'beacon-hub', now: Date.now(), place }));
+      }
       if (m === 'GET' && p === '/api/events') {
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
         res.write('retry: 2000\n\n');
@@ -67,6 +76,10 @@ export function startHttp(app: HubApp, opts: { port?: number; token?: string; pa
       }
       if (m === 'POST' && p === '/api/agents') {
         const b = await body(req);
+        if (b.personaId) {
+          const a = app.enrol(b as Parameters<typeof app.enrol>[0]);
+          return a ? send(200, a) : send(404, { error: 'unknown persona or template' });
+        }
         if (b.templateId) {
           const a = app.addFromTemplate(String(b.templateId), b.over ?? {});
           return a ? send(200, a) : send(404, { error: 'unknown template' });

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { TextInput, View } from 'react-native';
+import { Flower } from '../components/Deco';
 import { Icon } from '../components/Icon';
 import { Screen } from '../components/Screen';
 import { Appear, Badge, Btn, Card, Row, Txt, useTheme } from '../components/ui';
@@ -44,14 +45,17 @@ export default function Family() {
   return (
     <Screen title={t('tabKids')}>
       <Appear>
-        <Card style={{ gap: 6 }}>
-          <Txt size={11} weight="600" color={p.muted} style={{ textTransform: 'uppercase', letterSpacing: 0.6 }}>
+        <Card tint="blue" style={{ gap: 6, overflow: 'hidden', paddingRight: 88, minHeight: 150 }}>
+          <View pointerEvents="none" style={{ position: 'absolute', right: -14, top: -16, transform: [{ rotate: '12deg' }] }}>
+            <Flower size={96} />
+          </View>
+          <Txt size={14} weight="600" color="#0B1033">
             {t('yourCode')}
           </Txt>
-          <Txt size={28} weight="600" style={{ letterSpacing: 4 }}>
+          <Txt size={30} weight="700" color="#0B1033" style={{ letterSpacing: 4 }}>
             {code}
           </Txt>
-          <Txt size={12} color={p.muted}>
+          <Txt size={12} color="#0B1033">
             {t('shareCodeHint')}
           </Txt>
           <View style={{ marginTop: 6, alignSelf: 'flex-start' }}>
@@ -73,11 +77,11 @@ export default function Family() {
       </Appear>
 
       <Card style={{ gap: 10 }}>
-        <Txt size={14} weight="600">
+        <Txt size={16} weight="600">
           {t('enterCode')}
         </Txt>
         <Row>
-          <TextInput value={lookup} onChangeText={(v) => setLookup(v.toUpperCase())} autoCapitalize="characters" maxLength={12} placeholder="ABCD2345" placeholderTextColor={p.muted} style={{ flex: 1, height: 42, backgroundColor: p.cardAlt, borderRadius: radius.pill, paddingHorizontal: 16, color: p.text, fontSize: 15, letterSpacing: 2, fontFamily: 'Lexend_400Regular', paddingVertical: 0 }} />
+          <TextInput value={lookup} onChangeText={(v) => setLookup(v.toUpperCase())} autoCapitalize="characters" maxLength={12} placeholder="ABCD2345" placeholderTextColor={p.muted} style={{ flex: 1, height: 44, backgroundColor: p.cardAlt, borderRadius: radius.pill, paddingHorizontal: 16, color: p.text, fontSize: 15, letterSpacing: 2, fontFamily: 'Poppins_400Regular', paddingVertical: 0 }} />
           <Btn label="" icon="search" onPress={() => void load()} disabled={lookup.trim().length < 6} />
         </Row>
         {err ? <Txt size={12} color={p.danger}>{err}</Txt> : null}
@@ -85,7 +89,7 @@ export default function Family() {
 
       {fromMesh.map((m, i) => (
         <Appear key={'m' + i}>
-          <Card style={{ gap: 2, padding: 12 }}>
+          <Card tint="green" style={{ gap: 2, padding: 14 }}>
             <Row style={{ gap: 8 }}>
               <Icon name="check" size={14} color={p.ok} />
               <Txt size={14} weight="500">
@@ -100,9 +104,9 @@ export default function Family() {
       ))}
       {view?.members.map((m, i) => (
         <Appear key={i}>
-          <Card style={{ gap: 4, padding: 12 }}>
+          <Card tint="yellow" style={{ gap: 4, padding: 14 }}>
             <Row style={{ justifyContent: 'space-between' }}>
-              <Txt size={15} weight="600">
+              <Txt size={15} weight="700" color="#1F1700">
                 {m.name}
               </Txt>
               {m.zone ? <Badge soft label={`${t('inZone')} ${m.zone}`} color={p.ok} /> : null}
@@ -115,10 +119,10 @@ export default function Family() {
       ))}
       {view?.safe.map((m, i) => (
         <Appear key={'s' + i}>
-          <Card style={{ padding: 12 }}>
+          <Card tint={m.kind === 'sos' ? 'pink' : 'green'} style={{ padding: 14 }}>
             <Row style={{ gap: 8 }}>
-              <Icon name={m.kind === 'sos' ? 'siren' : 'check'} size={14} color={m.kind === 'sos' ? p.danger : p.ok} />
-              <Txt size={13} style={{ flex: 1 }}>
+              <Icon name={m.kind === 'sos' ? 'siren' : 'check'} size={14} color="#0A0A0C" />
+              <Txt size={13} color="#0A0A0C" style={{ flex: 1 }}>
                 {m.name} {m.kind === 'sos' ? t('childSos') : t('childSafeAt')} · {relativeTime(m.ts, lang)}
               </Txt>
             </Row>

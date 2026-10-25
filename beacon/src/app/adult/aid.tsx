@@ -4,11 +4,11 @@ import { Modal, Platform, View } from 'react-native';
 import { type PersonaKey, PERSONAS } from '../../ai/persona';
 import { GuideBrowser } from '../../components/GuideBrowser';
 import { PersonaChat } from '../../components/PersonaChat';
+import { PhotoTriage } from '../../components/PhotoTriage';
 import { PixelAvatar, cast } from '../../components/PixelAvatar';
 import { Screen } from '../../components/Screen';
 import { Btn, Card, Chip, Press, Row, Txt, useTheme } from '../../components/ui';
 import { useLang, useLocal, useT } from '../../i18n';
-import { PHOTO_CHOICES, describeImage } from '../../services/vision';
 import { radius } from '../../theme';
 
 export default function Aid() {
@@ -20,28 +20,32 @@ export default function Aid() {
   const [tab, setTab] = useState<'ask' | 'browse'>('ask');
   const [incoming, setIncoming] = useState<{ n: number; text: string }>({ n: 0, text: '' });
   const [camera, setCamera] = useState(false);
-  const [looking, setLooking] = useState(false);
-  const [choices, setChoices] = useState(false);
+  // the guided photo check; uri is undefined when there is no photo (web, no permission, capture failed)
+  const [triage, setTriage] = useState<{ uri?: string } | null>(null);
   const [perm, askPerm] = useCameraPermissions();
   const cam = React.useRef<CameraView>(null);
 
   const say = (text: string) => setIncoming((x) => ({ n: x.n + 1, text }));
 
   const openCamera = async () => {
-    if (Platform.OS === 'web') return setChoices(true);
-    if (!perm?.granted && !(await askPerm()).granted) return setChoices(true);
-    setCamera(true);
+    try {
+      if (Platform.OS === 'web') return setTriage({});
+      if (!perm?.granted && !(await askPerm()).granted) return setTriage({});
+      setCamera(true);
+    } catch {
+      setTriage({});
+    }
   };
 
   const shoot = async () => {
-    const pic = await cam.current?.takePictureAsync({ quality: 0.5 });
+    let uri: string | undefined;
+    try {
+      uri = (await cam.current?.takePictureAsync({ quality: 0.5 }))?.uri;
+    } catch {
+      uri = undefined; // capture failed: the guided check still works without a photo
+    }
     setCamera(false);
-    if (!pic) return;
-    setLooking(true);
-    const text = await describeImage(pic.uri).catch(() => null);
-    setLooking(false);
-    if (text) say(text);
-    else setChoices(true); // no vision model on this phone: let the person say what they see
+    setTriage({ uri });
   };
 
   return (
@@ -92,35 +96,8 @@ export default function Aid() {
         </View>
       </Modal>
 
-      <Modal visible={choices || looking} transparent animationType="fade" onRequestClose={() => setChoices(false)}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}>
-          <View style={{ backgroundColor: p.bg, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: 18, gap: 12 }}>
-            {looking ? (
-              <Txt size={14} weight="500" style={{ textAlign: 'center' }}>
-                {t('describingPhoto')}
-              </Txt>
-            ) : (
-              <>
-                <Txt size={12.5} color={p.muted}>
-                  {t('photoFailed')}
-                </Txt>
-                <Row style={{ flexWrap: 'wrap', gap: 6 }}>
-                  {PHOTO_CHOICES.map((c) => (
-                    <Chip
-                      key={c.query}
-                      label={lang === 'hi' ? c.hi : c.en}
-                      onPress={() => {
-                        setChoices(false);
-                        say(c.query);
-                      }}
-                    />
-                  ))}
-                </Row>
-                <Btn label={t('cancel')} kind="ghost" size="sm" onPress={() => setChoices(false)} />
-              </>
-            )}
-          </View>
-        </View>
+      <Modal visible={triage !== null} animationType="slide" onRequestClose={() => setTriage(null)}>
+        {triage ? <PhotoTriage uri={triage.uri} onClose={() => setTriage(null)} onSummary={(text) => say(text)} /> : null}
       </Modal>
     </Screen>
   );

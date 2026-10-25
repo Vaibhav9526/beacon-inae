@@ -6,7 +6,8 @@ import { Screen } from '../../components/Screen';
 export default function DidiScreen() {
   return (
     <Screen back={false} scroll={false}>
-      <View style={{ flex: 1, paddingBottom: 84 }}>
+      {/* Screen already reserves the tab bar clearance on /kid/didi, so no extra bottom padding here */}
+      <View style={{ flex: 1 }}>
         <PersonaChat persona="didi" />
       </View>
     </Screen>

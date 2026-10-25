@@ -8,9 +8,21 @@
   var TOKEN = readToken();
 
   var PASTELS = ['pink', 'yellow', 'blue', 'green', 'lilac', 'peach'];
+  var LOOK_COLORS = ['#E0482F', '#FDB155', '#FFD85E', '#9EE6A0', '#2F9FB5', '#8FA1FB', '#B9A0FB', '#F670C4'];
+  var CITIES = [
+    ['Delhi', 28.6139, 77.2090],
+    ['Mumbai', 19.0760, 72.8777],
+    ['Chennai', 13.0827, 80.2707],
+    ['Kolkata', 22.5726, 88.3639],
+    ['Bengaluru', 12.9716, 77.5946],
+    ['Hyderabad', 17.3850, 78.4867],
+    ['Guwahati', 26.1445, 91.7362],
+    ['Kochi', 9.9312, 76.2673]
+  ];
   var ROUTES = [
     { id: 'agents', label: 'Agents' },
     { id: 'vault', label: 'Vault' },
+    { id: 'school', label: 'School' },
     { id: 'activity', label: 'Activity' },
     { id: 'health', label: 'Health' },
     { id: 'connections', label: 'Connections' }
@@ -27,6 +39,9 @@
   var ICON_PATHS = {
     agents: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20c1-3.6 3.6-5.5 7-5.5s6 1.9 7 5.5"/>',
     vault: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="12" cy="12" r="3.2"/><path d="M12 8.8v-1.1M12 16.3v-1.1M8.8 12H7.7M16.3 12h-1.1"/>',
+    school: '<path d="M12 4L3 8.5 12 13l9-4.5L12 4z"/><path d="M6.5 10.5V15c0 1.4 2.5 2.5 5.5 2.5s5.5-1.1 5.5-2.5v-4.5"/><path d="M21 8.5V14"/>',
+    left: '<path d="M14.5 6.5L9 12l5.5 5.5"/>',
+    right: '<path d="M9.5 6.5L15 12l-5.5 5.5"/>',
     send: '<path d="M21 4L3.5 11l7 2.5L13 20.5 21 4z"/><path d="M10.5 13.5L21 4"/>',
     phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>',
     activity: '<path d="M3 12h4l2.5-6 5 12 2.5-6H21"/>',
@@ -55,6 +70,10 @@
   var adding = {};
   var drawerId = null;
   var drawerReturn = null;
+  var drawerMode = null;
+  var wizard = null;
+  var waking = false;
+  var focusAgentId = null;
 
   var view = document.getElementById('view');
   var nav = document.getElementById('nav');
@@ -177,6 +196,27 @@
     return a ? a.name : id;
   }
 
+  function personaOf(id) {
+    return ((state && state.personas) || []).filter(function (p) { return p.id === id; })[0] || null;
+  }
+
+  function roleOf(a) {
+    var p = personaOf(a && a.personaId);
+    return p ? p.role : '';
+  }
+
+  function avatarCanvas(a) {
+    var c = h('canvas', { class: 'pixel', width: 16, height: 16, 'aria-hidden': 'true' });
+    drawAvatar(c, a.avatar, a.look);
+    return c;
+  }
+
+  function personaCanvas(p) {
+    var c = h('canvas', { class: 'pixel', width: 16, height: 16, 'aria-hidden': 'true' });
+    drawAvatar(c, p.avatar, p.look);
+    return c;
+  }
+
   function lastRun(id) {
     var best = null;
     var bestT = -1;
@@ -276,25 +316,146 @@
     }));
   }
 
+  var SIT_WORDS = { calm: 'Calm', watch: 'Watch', alert: 'Alert', recovering: 'Recovering' };
+
+  // Header chip: coloured dot, the phase word, and the headline as a second line and tooltip.
+  function renderSituation() {
+    var el = document.getElementById('situation');
+    if (!el) return;
+    var s = state && state.situation;
+    if (!s || !SIT_WORDS[s.phase]) { el.hidden = true; return; }
+    var word = SIT_WORDS[s.phase];
+    el.hidden = false;
+    el.className = 'situation sit-' + s.phase;
+    el.title = s.headline;
+    el.setAttribute('aria-label', 'Situation: ' + word + '. ' + s.headline);
+    el.replaceChildren(
+      h('span', { class: 'sit-dot', 'aria-hidden': 'true' }),
+      h('span', { class: 'sit-body' }, [
+        h('strong', { class: 'sit-word' }, word),
+        h('span', { class: 'sit-line' }, s.headline)
+      ])
+    );
+  }
+
   function render() {
     if (!state) return;
     var r = currentRoute();
+    renderSituation();
     Array.prototype.forEach.call(nav.querySelectorAll('a'), function (a) {
       if (a.getAttribute('data-route') === r) a.setAttribute('aria-current', 'page');
       else a.removeAttribute('aria-current');
     });
+    renderAwake();
     var pages = {
       agents: agentsPage,
       vault: vaultPage,
+      school: schoolPage,
       activity: activityPage,
       health: healthPage,
       connections: connectionsPage
     };
+    var focus = focusAgentId;
+    focusAgentId = null;
     view.replaceChildren(pages[r]());
     if (r === 'vault') paintVault();
     renderSheet();
     renderDrawer();
+    if (r === 'agents' && focus) focusAgentCard(focus);
     enterNext = false;
+  }
+
+  /* ---------- awake rail ---------- */
+
+  function renderAwake() {
+    var rail = document.getElementById('awakeRail');
+    if (!rail) return;
+    var all = (state && state.agents) || [];
+    var awake = all.filter(function (a) { return a.enabled; });
+    var resting = all.filter(function (a) { return !a.enabled; });
+    var kids = [
+      h('section', { class: 'rail-sec' }, [
+        h('div', { class: 'rail-head' }, [
+          h('span', null, 'Awake'),
+          h('span', { class: 'rail-count' }, String(awake.length))
+        ]),
+        awake.length
+          ? h('div', { class: 'rail-list' }, awake.map(awakeRow))
+          : h('p', { class: 'rail-empty small muted' }, 'No one awake yet.')
+      ])
+    ];
+    if (resting.length) {
+      kids.push(h('details', { class: 'rail-rest' }, [
+        h('summary', null, 'Resting · ' + resting.length),
+        h('div', { class: 'rail-list' }, resting.map(restingRow))
+      ]));
+    }
+    rail.replaceChildren.apply(rail, kids);
+  }
+
+  function awakeRow(a) {
+    var role = roleOf(a);
+    return h('button', {
+      type: 'button',
+      class: 'rail-agent',
+      title: a.name + (role ? ' · ' + role : ''),
+      onclick: function () { openAgent(a.id); }
+    }, [
+      h('span', { class: 'rail-av' }, avatarCanvas(a)),
+      h('span', { class: 'rail-txt' }, [
+        h('span', { class: 'rail-name' }, a.name),
+        role ? h('span', { class: 'rail-role' }, role) : null
+      ]),
+      h('span', { class: 'rail-dot', 'aria-label': 'Awake' })
+    ]);
+  }
+
+  function restingRow(a) {
+    var role = roleOf(a);
+    return h('div', { class: 'rail-rest-row' }, [
+      h('span', { class: 'rail-av' }, avatarCanvas(a)),
+      h('span', { class: 'rail-txt' }, [
+        h('span', { class: 'rail-name' }, a.name),
+        role ? h('span', { class: 'rail-role' }, role) : null
+      ]),
+      h('button', {
+        type: 'button', class: 'rail-wake', onclick: function () { wakeAgent(a); }
+      }, 'Wake')
+    ]);
+  }
+
+  function awakeStrip() {
+    var awake = ((state && state.agents) || []).filter(function (a) { return a.enabled; });
+    return h('div', { class: 'school-awake', 'aria-label': 'Awake agents' }, [
+      h('span', { class: 'sa-label' }, 'Awake'),
+      awake.length
+        ? h('div', { class: 'sa-list' }, awake.map(function (a) {
+            return h('button', {
+              type: 'button', class: 'mini-agent', title: 'Open ' + a.name,
+              onclick: function () { openAgent(a.id); }
+            }, [avatarCanvas(a), h('span', null, a.name), h('span', { class: 'mini-dot' })]);
+          }))
+        : h('span', { class: 'small muted' }, 'No one awake yet.')
+    ]);
+  }
+
+  function wakeAgent(a) {
+    act('POST', '/api/agents/' + a.id + '/toggle', null, 'Woke ' + a.name);
+  }
+
+  function openAgent(id) {
+    closeDrawer();
+    focusAgentId = id;
+    go('agents');
+  }
+
+  function focusAgentCard(id) {
+    var el = view.querySelector('[data-agent-id="' + id + '"]');
+    if (!el) return;
+    el.classList.add('flash');
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (el.scrollIntoView) el.scrollIntoView({ block: 'center', behavior: reduce ? 'auto' : 'smooth' });
+    setTimeout(function () { el.classList.remove('flash'); }, 2400);
   }
 
   /* ---------- Agents ---------- */
@@ -341,12 +502,27 @@
     });
   }
 
+  function wakeToggle(a) {
+    var on = !!a.enabled;
+    return h('button', {
+      type: 'button',
+      class: 'wake-toggle' + (on ? ' on' : ''),
+      'aria-pressed': on ? 'true' : 'false',
+      title: (on ? 'Rest ' : 'Wake ') + a.name,
+      onclick: function (e) {
+        e.stopPropagation();
+        act('POST', '/api/agents/' + a.id + '/toggle', null, (on ? 'Resting ' : 'Waking ') + a.name);
+      }
+    }, [h('span', { class: 'wt-dot' }), on ? 'Rest' : 'Wake']);
+  }
+
   function agentCard(a, i) {
     var last = lastRun(a.id);
     var isBusy = !!busy[a.id];
     var dot = isBusy ? ['run', 'Checking now'] : (a.enabled ? ['ok', 'Watching, every ' + (a.everyMin || 5) + ' min'] : ['', 'Paused']);
     var canvas = h('canvas', { class: 'pixel', width: 16, height: 16, 'aria-hidden': 'true' });
-    drawAvatar(canvas, a.avatar);
+    drawAvatar(canvas, a.avatar, a.look);
+    var persona = personaOf(a.personaId);
 
     var rules = a.rules || [];
     var chips = rules.length
@@ -387,23 +563,18 @@
 
     var place = [a.place && a.place.name, (a.watch || []).join(', ')].filter(Boolean).join(' · ');
 
-    return h('article', { class: 'card p-' + PASTELS[i % PASTELS.length] }, [
+    return h('article', { class: 'card p-' + PASTELS[i % PASTELS.length], 'data-agent-id': a.id }, [
       h('div', { class: 'agent-top' }, [
         h('div', { class: 'av' }, canvas),
         h('div', { class: 'grow' }, [
-          h('h3', { class: 'name' }, a.name),
-          h('div', { class: 'status' }, [h('span', { class: 'dot ' + dot[0] }), dot[1]])
+          h('div', { class: 'name-row' }, [
+            h('h3', { class: 'name' }, a.name),
+            persona ? h('span', { class: 'role-chip' }, persona.role) : null
+          ]),
+          h('div', { class: 'status' }, [h('span', { class: 'dot ' + dot[0] }), dot[1]]),
+          persona && persona.signature ? h('div', { class: 'sig small muted' }, persona.signature) : null
         ]),
-        h('button', {
-          type: 'button',
-          class: 'switch',
-          role: 'switch',
-          'aria-checked': a.enabled ? 'true' : 'false',
-          'aria-label': (a.enabled ? 'Pause ' : 'Start ') + a.name,
-          onclick: function () {
-            act('POST', '/api/agents/' + a.id + '/toggle', null, (a.enabled ? 'Paused ' : 'Watching ') + a.name);
-          }
-        })
+        wakeToggle(a)
       ]),
       place ? h('div', { class: 'place' }, place) : null,
       chips,
@@ -421,6 +592,397 @@
         ])
       ])
     ]);
+  }
+
+  /* ---------- School ---------- */
+
+  function schoolPage() {
+    var personas = (state && state.personas) || [];
+    var page = h('section', { class: 'school' }, [
+      head('School', 'Enrol an agent as a persona. Each brings a voice, a look and the missions it does best.', [awakeStrip()])
+    ]);
+    if (!personas.length) {
+      page.appendChild(empty('The school is empty', 'Personas ship with the hub. Check that the hub installed correctly.'));
+      return page;
+    }
+    var grid = h('div', { class: 'grid' });
+    personas.forEach(function (p, i) {
+      grid.appendChild(anim(schoolCard(p, i), i));
+    });
+    page.appendChild(grid);
+    return page;
+  }
+
+  function schoolCard(p, i) {
+    var missions = (p.templates || []).length;
+    return h('article', {
+      class: 'card school-card p-' + p.tint,
+      role: 'button',
+      tabindex: '0',
+      'aria-label': 'Enrol as ' + p.role,
+      onclick: function () { openSchoolDrawer(p.id); },
+      onkeydown: function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openSchoolDrawer(p.id); }
+      }
+    }, [
+      h('div', { class: 'agent-top' }, [
+        h('div', { class: 'av' }, personaCanvas(p)),
+        h('div', { class: 'grow' }, [
+          h('h3', { class: 'name' }, p.role),
+          h('div', { class: 'persona-name small' }, p.name)
+        ])
+      ]),
+      h('p', { class: 'tagline' }, p.tagline),
+      h('div', { class: 'skill-chips' }, (p.skills || []).slice(0, 4).map(function (s) {
+        return h('span', { class: 'chip' }, s);
+      })),
+      h('div', { class: 'card-foot' }, [
+        h('span', { class: 'small muted' }, missions + ' mission' + (missions === 1 ? '' : 's')),
+        h('span', { class: 'enrol-link' }, 'Enrol')
+      ])
+    ]);
+  }
+
+  function openSchoolDrawer(id) {
+    var p = personaOf(id);
+    if (!p) return;
+    drawerReturn = document.activeElement;
+    drawerMode = 'school';
+    drawerId = null;
+    waking = false;
+    wizard = {
+      personaId: p.id,
+      step: 1,
+      rev: 0,
+      name: p.name,
+      templateId: (p.templates || [])[0] || '',
+      placeName: 'Delhi',
+      lat: '28.6139',
+      lon: '77.2090',
+      members: 'Maa',
+      channels: { telegram: true, beacon: false },
+      look: { hair: p.look.hair, skin: p.look.skin, color: p.look.color },
+      done: false,
+      agentName: '',
+      agent: null
+    };
+    var d = document.getElementById('drawer');
+    if (!d) return;
+    var panel = d.querySelector('.drawer-panel');
+    if (panel) panel.setAttribute('data-key', '');
+    d.classList.add('open');
+    d.setAttribute('aria-hidden', 'false');
+    renderDrawer();
+    var close = d.querySelector('.drawer-close');
+    if (close) close.focus();
+  }
+
+  function schoolPersona() {
+    return wizard ? personaOf(wizard.personaId) : null;
+  }
+
+  function paintSchoolDrawer(panel) {
+    var p = schoolPersona();
+    if (!p) { closeDrawer(); return; }
+    var key = 'school:' + p.id + ':' + wizard.step + ':' + wizard.rev + (wizard.done ? ':done' : '');
+    if (panel.getAttribute('data-key') === key) return;
+    panel.setAttribute('data-key', key);
+    panel.className = 'drawer-panel p-' + p.tint;
+    panel.replaceChildren.apply(panel, schoolDrawerBody(p));
+  }
+
+  function schoolDrawerBody(p) {
+    if (wizard.done) return schoolDone(p);
+    var nodes = [wizTop('School · Step ' + wizard.step + ' of 3'), wizProgress(wizard.step)];
+    var body = wizard.step === 1 ? wizStepOne(p) : wizard.step === 2 ? wizStepTwo(p) : wizStepThree(p);
+    return nodes.concat(body);
+  }
+
+  function wizTop(label) {
+    return h('div', { class: 'drawer-top' }, [
+      h('span', { class: 'small muted' }, label),
+      h('button', { type: 'button', class: 'drawer-close', title: 'Close', 'aria-label': 'Close', onclick: closeDrawer, html: icon('x') })
+    ]);
+  }
+
+  function wizProgress(step) {
+    return h('div', { class: 'wiz-progress', 'aria-hidden': 'true' }, [1, 2, 3].map(function (n) {
+      return h('span', { class: 'wiz-dot' + (n <= step ? ' on' : '') });
+    }));
+  }
+
+  function wizStepOne(p) {
+    return [
+      h('div', { class: 'drawer-hero p-' + p.tint }, [
+        h('div', { class: 'av big' }, personaCanvas(p)),
+        h('div', { class: 'grow' }, [
+          h('h2', { id: 'drawerTitle', class: 'drawer-title' }, p.role),
+          h('p', { class: 'small' }, p.name + ' · ' + p.tagline)
+        ])
+      ]),
+      vsec('About', h('p', { class: 'vtext' }, p.about)),
+      vsec('Skills', h('div', { class: 'skill-chips' }, (p.skills || []).map(function (s) {
+        return h('span', { class: 'chip' }, s);
+      }))),
+      vsec('Voice', h('blockquote', { class: 'quote vquote' }, p.voice)),
+      h('div', { class: 'wiz-foot' }, [
+        h('span', { class: 'small muted' }, 'Step 1 · Persona'),
+        h('button', { type: 'button', class: 'pill', onclick: function () { wizard.step = 2; wizard.rev++; renderDrawer(); } }, 'Continue')
+      ])
+    ];
+  }
+
+  function wizStepTwo(p) {
+    var missions = (p.templates || []).map(findTpl).filter(Boolean);
+    if (missions.length && !missions.some(function (m) { return m.id === wizard.templateId; })) wizard.templateId = missions[0].id;
+
+    var nameInput = h('input', {
+      type: 'text', value: wizard.name, 'aria-label': 'Agent name',
+      oninput: function () { wizard.name = this.value; }
+    });
+
+    var placeInput = h('input', {
+      type: 'text', value: wizard.placeName, 'aria-label': 'Place name',
+      oninput: function () { wizard.placeName = this.value; }
+    });
+    var latInput = h('input', {
+      type: 'number', step: '0.0001', value: wizard.lat, 'aria-label': 'Latitude',
+      oninput: function () { wizard.lat = this.value; }
+    });
+    var lonInput = h('input', {
+      type: 'number', step: '0.0001', value: wizard.lon, 'aria-label': 'Longitude',
+      oninput: function () { wizard.lon = this.value; }
+    });
+
+    var cityButtons = CITIES.map(function (c) {
+      return h('button', {
+        type: 'button', class: 'city-btn', onclick: function () {
+          wizard.placeName = c[0];
+          wizard.lat = String(c[1]);
+          wizard.lon = String(c[2]);
+          placeInput.value = c[0];
+          latInput.value = wizard.lat;
+          lonInput.value = wizard.lon;
+        }
+      }, c[0]);
+    });
+
+    var membersInput = h('input', {
+      type: 'text', value: wizard.members, 'aria-label': 'Family members',
+      placeholder: 'Maa, Papa', oninput: function () { wizard.members = this.value; }
+    });
+
+    function chanToggle(key, label) {
+      var on = !!wizard.channels[key];
+      return h('button', {
+        type: 'button', class: 'chan-toggle', 'aria-pressed': on ? 'true' : 'false',
+        onclick: function () {
+          var next = !wizard.channels[key];
+          var other = key === 'telegram' ? 'beacon' : 'telegram';
+          if (!next && !wizard.channels[other]) { toast('Keep at least one channel on', true); return; }
+          wizard.channels[key] = next;
+          this.setAttribute('aria-pressed', next ? 'true' : 'false');
+        }
+      }, label);
+    }
+
+    var missionCards = missions.map(function (m) {
+      return h('label', { class: 'mission' }, [
+        h('input', {
+          type: 'radio', name: 'mission', value: m.id, checked: wizard.templateId === m.id,
+          onchange: function () { wizard.templateId = this.value; }
+        }),
+        h('span', { class: 'mission-body' }, [
+          h('span', { class: 'mission-mark' }),
+          h('span', null, [
+            h('span', { class: 'mission-name' }, m.name),
+            h('span', { class: 'mission-sum' }, m.summary || '')
+          ])
+        ])
+      ]);
+    });
+
+    return [
+      h('h2', { id: 'drawerTitle', class: 'drawer-title' }, 'Set up ' + p.name),
+      vsec('Agent name', h('label', { class: 'flabel' }, [h('span', null, 'Name'), nameInput])),
+      vsec('Mission', missions.length
+        ? h('div', { class: 'wiz-missions' }, missionCards)
+        : h('p', { class: 'small muted' }, 'No missions are available for this persona yet.')),
+      vsec('Place', h('div', null, [
+        h('label', { class: 'flabel' }, [h('span', null, 'Place name'), placeInput]),
+        h('div', { class: 'wiz-grid2' }, [
+          h('label', { class: 'flabel' }, [h('span', null, 'Latitude'), latInput]),
+          h('label', { class: 'flabel' }, [h('span', null, 'Longitude'), lonInput])
+        ]),
+        h('div', { class: 'city-list' }, cityButtons)
+      ])),
+      vsec('Family', h('label', { class: 'flabel' }, [
+        h('span', null, 'Members, separated by commas'),
+        membersInput
+      ])),
+      vsec('Channels', h('div', { class: 'wiz-channels' }, [chanToggle('telegram', 'Telegram'), chanToggle('beacon', 'Beacon')])),
+      h('div', { class: 'wiz-foot' }, [
+        btn('Back', { kind: 'ghost', onclick: function () { wizard.step = 1; wizard.rev++; renderDrawer(); } }),
+        h('button', {
+          type: 'button', class: 'pill', onclick: function () {
+            if (!missions.length) { toast('Pick a mission first', true); return; }
+            if (!wizard.templateId) wizard.templateId = missions[0].id;
+            wizard.step = 3; wizard.rev++; renderDrawer();
+          }
+        }, 'Continue')
+      ])
+    ];
+  }
+
+  function stepBtn(dir, label, onclick) {
+    return h('button', {
+      type: 'button', class: 'step-btn', title: label, 'aria-label': label, onclick: onclick, html: icon(dir)
+    });
+  }
+
+  function wizStepThree(p) {
+    var canvas = h('canvas', { class: 'pixel', width: 16, height: 16, 'aria-hidden': 'true' });
+    drawAvatar(canvas, p.avatar, wizard.look);
+    var hairVal = h('span', { class: 'picker-val' }, 'Hair ' + (wizard.look.hair + 1) + ' / 8');
+    var skinVal = h('span', { class: 'picker-val' }, 'Skin ' + (wizard.look.skin + 1) + ' / 8');
+
+    function refresh() {
+      drawAvatar(canvas, p.avatar, wizard.look);
+      hairVal.textContent = 'Hair ' + (wizard.look.hair + 1) + ' / 8';
+      skinVal.textContent = 'Skin ' + (wizard.look.skin + 1) + ' / 8';
+    }
+    function cycle(key, d) {
+      wizard.look[key] = ((wizard.look[key] + d) % 8 + 8) % 8;
+      refresh();
+    }
+
+    var palette = LOOK_COLORS.slice();
+    if (palette.indexOf(p.look.color) < 0) palette[palette.length - 1] = p.look.color;
+    var swatches = palette.map(function (c) {
+      var b = h('button', {
+        type: 'button', class: 'swatch', style: 'background:' + c,
+        title: c, 'aria-label': 'Colour ' + c,
+        'aria-pressed': wizard.look.color === c ? 'true' : 'false',
+        onclick: function () {
+          wizard.look.color = c;
+          Array.prototype.forEach.call(b.parentNode.children, function (x) {
+            x.setAttribute('aria-pressed', x === b ? 'true' : 'false');
+          });
+          refresh();
+        }
+      });
+      return b;
+    });
+
+    var wakeBtn = h('button', {
+      type: 'button', class: 'pill', disabled: waking,
+      onclick: function () { wakeUp(p, wakeBtn); }
+    }, waking ? 'Waking...' : 'Wake up');
+
+    return [
+      h('h2', { id: 'drawerTitle', class: 'drawer-title' }, 'Look'),
+      h('div', { class: 'look-preview' }, [
+        h('div', { class: 'av big' }, canvas),
+        h('div', { class: 'grow' }, [
+          h('div', { class: 'look-name' }, wizard.name || p.name),
+          h('div', { class: 'small' }, p.role + ' · ' + p.name)
+        ])
+      ]),
+      h('div', { class: 'picker' }, [
+        h('div', { class: 'picker-head' }, [h('span', { class: 'picker-title' }, 'Hair'), hairVal]),
+        h('div', { class: 'stepper-row' }, [
+          stepBtn('left', 'Previous hair', function () { cycle('hair', -1); }),
+          stepBtn('right', 'Next hair', function () { cycle('hair', 1); })
+        ])
+      ]),
+      h('div', { class: 'picker' }, [
+        h('div', { class: 'picker-head' }, [h('span', { class: 'picker-title' }, 'Skin'), skinVal]),
+        h('div', { class: 'stepper-row' }, [
+          stepBtn('left', 'Previous skin', function () { cycle('skin', -1); }),
+          stepBtn('right', 'Next skin', function () { cycle('skin', 1); })
+        ])
+      ]),
+      h('div', { class: 'picker' }, [
+        h('div', { class: 'picker-head' }, [h('span', { class: 'picker-title' }, 'Colour'), h('span', { class: 'picker-val' }, 'Clothes')]),
+        h('div', { class: 'swatches' }, swatches)
+      ]),
+      h('div', { class: 'wiz-foot' }, [
+        btn('Back', { kind: 'ghost', onclick: function () { wizard.step = 2; wizard.rev++; renderDrawer(); } }),
+        wakeBtn
+      ])
+    ];
+  }
+
+  function parseMembers(text) {
+    return String(text || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+  }
+
+  function wakeUp(p, button) {
+    if (waking) return;
+    waking = true;
+    if (button) { button.disabled = true; button.textContent = 'Waking...'; }
+    var name = String(wizard.name || '').trim() || p.name;
+    var channels = Object.keys(wizard.channels).filter(function (k) { return wizard.channels[k]; });
+    var lat = Number(wizard.lat);
+    var lon = Number(wizard.lon);
+    var body = {
+      personaId: p.id,
+      name: name,
+      templateId: wizard.templateId,
+      place: {
+        name: String(wizard.placeName || '').trim() || 'Delhi',
+        lat: isNaN(lat) ? 28.6139 : lat,
+        lon: isNaN(lon) ? 77.2090 : lon
+      },
+      members: parseMembers(wizard.members),
+      look: { hair: wizard.look.hair, skin: wizard.look.skin, color: wizard.look.color },
+      channels: channels,
+      awake: true
+    };
+    ask('POST', '/api/agents', body).then(function (d) {
+      if (!d) {
+        waking = false;
+        if (button) { button.disabled = false; button.textContent = 'Wake up'; }
+        return;
+      }
+      waking = false;
+      wizard.done = true;
+      wizard.agent = d;
+      wizard.agentName = (d && d.name) || name;
+      wizard.rev++;
+      renderDrawer();
+      toast(name + ' is awake');
+      refresh();
+    });
+  }
+
+  function schoolDone(p) {
+    var name = wizard.agentName || (wizard.agent && wizard.agent.name) || p.name;
+    var tpl = findTpl(wizard.templateId);
+    var canvas = h('canvas', { class: 'pixel', width: 16, height: 16, 'aria-hidden': 'true' });
+    drawAvatar(canvas, p.avatar, wizard.look);
+    return [
+      wizTop('School · Enrolled'),
+      h('div', { class: 'wiz-done' }, [
+        h('div', { class: 'av big' }, canvas),
+        h('h2', { id: 'drawerTitle', class: 'done-title' }, name + ' is awake'),
+        h('p', { class: 'done-sub' }, p.role + (tpl ? ' · ' + tpl.name : '') + (wizard.placeName ? ' · ' + wizard.placeName : '')),
+        h('p', { class: 'small' }, 'The agent is watching and will speak in ' + p.name + "'s voice."),
+        h('div', { class: 'done-actions' }, [
+          h('a', {
+            class: 'pill', href: '#agents', onclick: function (e) {
+              e.preventDefault();
+              var id = wizard.agent && wizard.agent.id;
+              closeDrawer();
+              if (id) openAgent(id); else go('agents');
+            }
+          }, 'Go to Agents'),
+          h('button', {
+            type: 'button', class: 'btn ghost', onclick: function () { closeDrawer(); go('school'); }
+          }, 'Enrol another')
+        ])
+      ])
+    ];
   }
 
   /* ---------- Vault ---------- */
@@ -602,7 +1164,11 @@
     var d = document.getElementById('drawer');
     if (!d || !findTpl(id)) return;
     drawerReturn = document.activeElement;
+    drawerMode = 'vault';
     drawerId = id;
+    wizard = null;
+    var panel = d.querySelector('.drawer-panel');
+    if (panel) panel.setAttribute('data-key', '');
     d.classList.add('open');
     d.setAttribute('aria-hidden', 'false');
     renderDrawer();
@@ -613,21 +1179,32 @@
   function closeDrawer() {
     var d = document.getElementById('drawer');
     if (!d || !d.classList.contains('open')) return;
+    var panel = d.querySelector('.drawer-panel');
+    if (panel) panel.setAttribute('data-key', '');
     d.classList.remove('open');
     d.setAttribute('aria-hidden', 'true');
     drawerId = null;
+    drawerMode = null;
+    wizard = null;
+    waking = false;
     if (drawerReturn && drawerReturn.focus) drawerReturn.focus();
     drawerReturn = null;
   }
 
   function renderDrawer() {
     var d = document.getElementById('drawer');
-    if (!d || !d.classList.contains('open') || !drawerId) return;
+    if (!d || !d.classList.contains('open')) return;
+    var panel = d.querySelector('.drawer-panel');
+    if (!panel) return;
+    if (drawerMode === 'school' && wizard) return paintSchoolDrawer(panel);
+    if (!drawerId) return;
     var t = findTpl(drawerId);
     if (!t) { closeDrawer(); return; }
-    var panel = d.querySelector('.drawer-panel');
-    if (panel.getAttribute('data-id') !== t.id) {
+    var key = 'vault:' + t.id;
+    if (panel.getAttribute('data-key') !== key) {
+      panel.setAttribute('data-key', key);
       panel.setAttribute('data-id', t.id);
+      panel.className = 'drawer-panel p-' + tintOf(t);
       panel.replaceChildren.apply(panel, drawerBody(t));
     }
     paintDrawerAct();
@@ -1006,7 +1583,7 @@
       h('button', { type: 'button', class: 'btn ghost', onclick: function () { answer(p.id, 'no'); } }, "Don't send")
     ];
 
-    var card = h('div', { class: 'sheet-card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'sheetTitle' }, [
+    var card = h('div', { class: 'sheet-card p-lilac', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'sheetTitle' }, [
       h('h2', { id: 'sheetTitle' }, 'Send this message?'),
       h('p', { class: 'small muted' }, 'Beacon wants to send this short alert to your family channels.'),
       h('blockquote', { class: 'quote' }, p.text),
@@ -1066,11 +1643,87 @@
 
   function ago(ms) { return new Date(Date.now() - ms).toISOString(); }
 
+  var DEMO_PERSONAS = [
+    {
+      id: 'firefighter', name: 'Flint', role: 'Firefighter', tint: 'peach', avatar: 'rescue',
+      tagline: 'Fire, smoke and heat. First one in, calm voice.',
+      about: 'Watches for heat, dry wind and smoky air that make fires dangerous. Tells the family what to switch off, where to go and when to call 112.',
+      look: { hair: 3, skin: 2, color: '#E0482F' },
+      skills: ['Heat and fire risk', 'Smoke and air', 'Evacuation steps'],
+      voice: 'Short, firm and calm, like a firefighter giving clear orders. One action per sentence.',
+      signature: 'Flint, fire safety', templates: ['tpl-heat', 'tpl-kit'], speaks: 'veer'
+    },
+    {
+      id: 'doctor', name: 'Asha', role: 'Doctor', tint: 'pink', avatar: 'medic',
+      tagline: 'Looks after vitals, medicine and the elders.',
+      about: 'Reads heart rate and oxygen for family members and nudges when something looks off. Always points to a real doctor or 112 for anything urgent.',
+      look: { hair: 5, skin: 3, color: '#FFFFFF' },
+      skills: ['Family vitals', 'Medicine reminders', 'Heat illness'],
+      voice: 'Warm and reassuring, plain words, never a diagnosis. Ends urgent messages with call the doctor or 112.',
+      signature: 'Dr. Asha, family health', templates: ['tpl-med', 'tpl-heat'], speaks: 'asha'
+    },
+    {
+      id: 'rescuer', name: 'Veer', role: 'Rescue captain', tint: 'blue', avatar: 'rescue',
+      tagline: 'Floods, quakes and official warnings.',
+      about: 'Follows earthquakes, heavy rain and official NDMA and IMD warnings. Turns them into what to do now, where to go and what to carry.',
+      look: { hair: 1, skin: 4, color: '#2F7DE0' },
+      skills: ['Quakes', 'Floods', 'Official alerts', 'Evacuation'],
+      voice: 'Steady and direct, like a rescue captain on the radio. Says where to go and what to carry.',
+      signature: 'Captain Veer, rescue', templates: ['tpl-flood', 'tpl-sos'], speaks: 'veer'
+    },
+    {
+      id: 'teacher', name: 'Didi', role: 'Teacher', tint: 'yellow', avatar: 'guardian',
+      tagline: 'Keeps children safe and curious.',
+      about: 'Watches sun, air and heat for outdoor play and turns warnings into simple things a child can do. Good for family groups with kids.',
+      look: { hair: 6, skin: 1, color: '#E0A02F' },
+      skills: ['Child play safety', 'Simple language', 'Drills'],
+      voice: 'Friendly big-sister teacher. Very simple words a ten year old understands. Never scary.',
+      signature: 'Didi, child safety', templates: ['tpl-child', 'tpl-kit'], speaks: 'didi'
+    },
+    {
+      id: 'scientist', name: 'Megh', role: 'Weather scientist', tint: 'lilac', avatar: 'scout',
+      tagline: 'Numbers first: wind, rain, UV and air.',
+      about: 'Reads weather, air quality and storms and says what the numbers mean for your day. Good for the whole family and for planning trips.',
+      look: { hair: 2, skin: 2, color: '#8A3FD6' },
+      skills: ['Weather', 'Air quality', 'Cyclones', 'Cold and heat waves'],
+      voice: 'Curious and precise. Gives the number, then one plain sentence on what it means.',
+      signature: 'Megh, weather desk', templates: ['tpl-heat', 'tpl-flood'], speaks: 'default'
+    },
+    {
+      id: 'pharmacist', name: 'Dawa', role: 'Pharmacist', tint: 'green', avatar: 'medic',
+      tagline: 'Doses on time, stock never runs out.',
+      about: 'Tracks when medicine is due and how many days of stock are left, so nobody misses a dose in a storm or a lockdown.',
+      look: { hair: 0, skin: 3, color: '#2FA35B' },
+      skills: ['Dose reminders', 'Stock days left', 'Refill nudges'],
+      voice: 'Kind and tidy, like a neighbourhood pharmacist. Says the medicine name and what to do.',
+      signature: 'Dawa, medicine', templates: ['tpl-med', 'tpl-kit'], speaks: 'asha'
+    },
+    {
+      id: 'helper', name: 'Seva', role: 'Community helper', tint: 'pink', avatar: 'coach',
+      tagline: 'Neighbours, check-ins and who needs a hand.',
+      about: 'Notices when someone has not checked in and passes on help requests from nearby people. Keeps the community talking when things go wrong.',
+      look: { hair: 4, skin: 4, color: '#D6408F' },
+      skills: ['Check-ins', 'Help requests', 'Neighbours'],
+      voice: 'Neighbourly and kind, short and human. Asks before assuming the worst.',
+      signature: 'Seva, community', templates: ['tpl-sos', 'tpl-heat'], speaks: 'didi'
+    },
+    {
+      id: 'engineer', name: 'Neev', role: 'Engineer', tint: 'blue', avatar: 'sentinel',
+      tagline: 'Roads, water and the supplies at home.',
+      about: 'Watches roads and rain for routes that may close and counts days of water and food left at home so you can plan before shops shut.',
+      look: { hair: 1, skin: 2, color: '#2F9FB5' },
+      skills: ['Routes', 'Supplies', 'Go-bag'],
+      voice: 'Practical and brief, like an engineer reading a checklist. Gives a number of days and a next step.',
+      signature: 'Neev, supplies', templates: ['tpl-kit', 'tpl-flood'], speaks: 'default'
+    }
+  ];
+
   function demoData(withPending) {
     return {
       agents: [
         {
-          id: 'ag1', name: 'Heat watch', avatar: 'sentinel', templateId: 'tpl-heat', enabled: true,
+          id: 'ag1', name: 'Heat watch', avatar: 'sentinel', personaId: 'scientist',
+          look: { hair: 2, skin: 2, color: '#8A3FD6' }, templateId: 'tpl-heat', enabled: true,
           watch: ['heat index', 'Maa heart rate'], place: { name: 'Home', lat: 0, lon: 0 }, members: ['Maa'], everyMin: 5,
           rules: [{
             id: 'ru1', name: 'Heat index above 41 and Maa heart rate above 110',
@@ -1080,7 +1733,8 @@
           channels: ['telegram'], createdAt: ago(0)
         },
         {
-          id: 'ag2', name: 'Medic on call', avatar: 'medic', templateId: 'tpl-med', enabled: false,
+          id: 'ag2', name: 'Medic on call', avatar: 'medic', personaId: 'doctor',
+          look: { hair: 5, skin: 3, color: '#FFFFFF' }, templateId: 'tpl-med', enabled: false,
           watch: ['SpO2'], place: null, members: ['Papa'], everyMin: 10,
           rules: [{
             id: 'ru2', name: 'SpO2 below 92',
@@ -1090,11 +1744,25 @@
           channels: ['telegram', 'beacon'], createdAt: ago(0)
         },
         {
-          id: 'ag3', name: 'School run', avatar: 'guardian', templateId: 'tpl-child', enabled: true,
+          id: 'ag3', name: 'School run', avatar: 'guardian', personaId: 'teacher',
+          look: { hair: 6, skin: 1, color: '#E0A02F' }, templateId: 'tpl-child', enabled: true,
           watch: ['steps'], place: { name: 'School', lat: 0, lon: 0 }, members: ['Kiara'], everyMin: 15,
           rules: [], channels: ['beacon'], createdAt: ago(0)
+        },
+        {
+          id: 'ag4', name: 'Flint', avatar: 'rescue', personaId: 'firefighter',
+          look: { hair: 3, skin: 2, color: '#E0482F' }, templateId: 'tpl-heat', enabled: true,
+          watch: ['weather'], place: { name: 'Delhi', lat: 28.6139, lon: 77.209 }, members: ['Maa'], everyMin: 5,
+          rules: [], channels: ['telegram'], createdAt: ago(120000)
+        },
+        {
+          id: 'ag5', name: 'Asha', avatar: 'medic', personaId: 'doctor',
+          look: { hair: 5, skin: 3, color: '#FFFFFF' }, templateId: 'tpl-med', enabled: true,
+          watch: ['health', 'schedule'], place: { name: 'Mumbai', lat: 19.076, lon: 72.8777 }, members: ['Maa', 'Papa'], everyMin: 10,
+          rules: [], channels: ['telegram', 'beacon'], createdAt: ago(300000)
         }
       ],
+      personas: DEMO_PERSONAS,
       templates: [
         {
           id: 'tpl-heat', name: 'Heatwave Guardian', summary: 'Combines heat and heart rate to protect older family members.',
@@ -1187,7 +1855,13 @@
         text: 'Heat index 43 at home. Maa heart rate 118. Please check on her now.',
         channels: ['telegram', 'beacon']
       } : null,
-      members: ['Maa', 'Papa', 'Kiara']
+      members: ['Maa', 'Papa', 'Kiara'],
+      situation: {
+        phase: 'alert', level: 3, since: Date.now() - 9 * 60000,
+        headline: 'Act now: Heat and heart rate are high.',
+        reasons: ['1 severe alert in the last 3 hours', 'Maa heart rate 118 with heat index 43'],
+        actions: ['Move Maa to a cool room and give her water.', 'Call Dr. Asha or 112 if breathing is hard.', 'Check on the elders next door.']
+      }
     };
   }
 
@@ -1222,6 +1896,20 @@
     if (m === 'GET' && p === '/api/state') return JSON.parse(JSON.stringify(S));
 
     if (m === 'POST' && p === '/api/agents') {
+      if (b.personaId) {
+        var per = S.personas.filter(function (x) { return x.id === b.personaId; })[0];
+        if (!per) throw new Error('Persona not found');
+        var pt = S.templates.filter(function (x) { return x.id === (b.templateId || per.templates[0]); })[0];
+        if (!pt) throw new Error('Template not found');
+        var made = {
+          id: 'ag' + Date.now(), name: b.name || per.name, avatar: per.avatar, personaId: per.id,
+          look: b.look || per.look, templateId: pt.id, enabled: b.awake !== false,
+          watch: [], place: b.place || null, members: b.members || [], everyMin: 5, rules: [],
+          channels: (b.channels && b.channels.length) ? b.channels : ['telegram'], createdAt: new Date().toISOString()
+        };
+        S.agents.push(made);
+        return made;
+      }
       var t = S.templates.filter(function (x) { return x.id === b.templateId; })[0];
       if (!t) throw new Error('Template not found');
       S.agents.push({

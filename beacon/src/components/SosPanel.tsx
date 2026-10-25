@@ -157,29 +157,29 @@ export function SosPanel({ variant }: { variant: 'kid' | 'adult' }) {
   }
 
   return (
-    <View style={{ alignItems: 'center', gap: 6 }}>
+    <Card tint="pink" style={{ alignItems: 'center', gap: 10, padding: 20 }}>
       <Pressable accessibilityRole="button" accessibilityLabel={`${t('holdForHelp')}. ${t('tellsParents')}`} onPressIn={begin} onPressOut={release} style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
         <Svg width={size} height={size} style={StyleSheet.absoluteFill}>
           <Circle cx={size / 2} cy={size / 2} r={r} stroke={p.danger + '33'} strokeWidth={3} fill="none" />
           <Circle cx={size / 2} cy={size / 2} r={r} stroke={p.danger} strokeWidth={3} strokeLinecap="round" fill="none" strokeDasharray={`${circ}`} strokeDashoffset={circ * (1 - pct)} rotation={-90} originX={size / 2} originY={size / 2} />
         </Svg>
-        <View style={{ width: size - 18, height: size - 18, borderRadius: size, backgroundColor: p.danger, alignItems: 'center', justifyContent: 'center', transform: [{ scale: phase === 'holding' ? 0.95 : 1 }] }}>
-          <Txt size={19} weight="700" color="#fff" style={{ letterSpacing: 1 }}>
+        <View style={{ width: size - 18, height: size - 18, borderRadius: size, backgroundColor: '#0A0A0C', alignItems: 'center', justifyContent: 'center', transform: [{ scale: phase === 'holding' ? 0.95 : 1 }] }}>
+          <Txt size={22} weight="700" color="#fff" style={{ letterSpacing: 1 }}>
             SOS
           </Txt>
         </View>
       </Pressable>
-      <Txt size={13} weight="500" style={{ textAlign: 'center' }}>
+      <Txt size={14} weight="600" color={p.tint.pink.ink} style={{ textAlign: 'center' }}>
         {phase === 'holding' ? t('sosHold') : t('holdForHelp')}
       </Txt>
-      <Txt size={11.5} color={p.muted} style={{ textAlign: 'center' }}>
+      <Txt size={12} color={p.tint.pink.ink} style={{ textAlign: 'center' }}>
         {variant === 'kid' ? t('tellsParents') : shakeSos ? t('sosShakeHint') : ''}
       </Txt>
       {safeMsg ? (
-        <Txt size={11.5} color={p.ok} weight="500">
+        <Txt size={12} color={p.tint.pink.ink} weight="600">
           {t('iAmSafeSent')}
         </Txt>
       ) : null}
-    </View>
+    </Card>
   );
 }

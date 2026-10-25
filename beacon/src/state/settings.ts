@@ -44,6 +44,7 @@ export interface Settings {
   haptics: boolean;
   voiceControl: boolean;
   shakeSos: boolean;
+  fallDetect: boolean;
   /** Family pairing code. The child shares it with a parent. */
   familyCode: string;
   kidName: string;
@@ -87,6 +88,7 @@ const initial: Settings = {
   haptics: true,
   voiceControl: false,
   shakeSos: true,
+  fallDetect: false,
   familyCode: randomCode(),
   kidName: '',
   kidAvatar: 0,

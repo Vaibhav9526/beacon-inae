@@ -137,7 +137,7 @@ export default function NewReport() {
             </View>
           ) : null}
         </View>
-        <TextInput value={caption} onChangeText={setCaption} placeholder={t('caption')} placeholderTextColor={p.muted} maxLength={140} style={{ backgroundColor: p.card, borderRadius: radius.md, paddingHorizontal: 14, height: 46, color: p.text, fontSize: 14, borderWidth: 1, borderColor: p.border, fontFamily: 'Lexend_400Regular', paddingVertical: 0 }} />
+        <TextInput value={caption} onChangeText={setCaption} placeholder={t('caption')} placeholderTextColor={p.muted} maxLength={140} style={{ backgroundColor: p.card, borderRadius: radius.md, paddingHorizontal: 14, height: 46, color: p.text, fontSize: 14, borderWidth: 1, borderColor: p.border, fontFamily: 'Poppins_400Regular', paddingVertical: 0 }} />
         <Txt size={11.5} color={p.muted}>
           {t('captureOnly')}
         </Txt>

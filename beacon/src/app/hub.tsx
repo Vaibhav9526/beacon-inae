@@ -1,6 +1,7 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import React, { useRef, useState } from 'react';
 import { Platform, TextInput, View } from 'react-native';
+import { Bell, Shield } from '../components/Deco';
 import { Icon } from '../components/Icon';
 import { Screen } from '../components/Screen';
 import { Appear, Badge, Btn, Card, IconTile, Row, Txt, useTheme } from '../components/ui';
@@ -85,14 +86,17 @@ function Unpaired() {
   return (
     <>
       <Appear>
-        <Card tint="lilac" style={{ gap: 6 }}>
+        <Card tint="lilac" style={{ gap: 6, overflow: 'hidden', paddingRight: 88, minHeight: 150 }}>
+          <View pointerEvents="none" style={{ position: 'absolute', right: -14, top: -16, transform: [{ rotate: '12deg' }] }}>
+            <Bell size={96} />
+          </View>
           <Row>
-            <IconTile name="radio" tint="lilac" size={36} />
-            <Txt size={14} weight="600" style={{ flex: 1 }}>
+            <IconTile name="radio" tint="lilac" size={40} color="#1A1033" />
+            <Txt size={16} weight="700" color="#1A1033" style={{ flex: 1 }}>
               Not paired
             </Txt>
           </Row>
-          <Txt size={13} color={p.muted}>
+          <Txt size={13} color="#1A1033">
             A small app on your computer that watches weather, air, quakes and family health and warns you early.
           </Txt>
         </Card>
@@ -158,31 +162,37 @@ function Paired() {
   return (
     <>
       <Appear>
-        <Card tint="lilac" style={{ gap: 8 }}>
+        <Card tint="lilac" style={{ gap: 8, overflow: 'hidden', paddingRight: 88, minHeight: 150 }}>
+          <View pointerEvents="none" style={{ position: 'absolute', right: -14, top: -16, transform: [{ rotate: '12deg' }] }}>
+            <Bell size={96} />
+          </View>
           <Row>
-            <IconTile name="radio" tint="lilac" size={36} />
+            <IconTile name="radio" tint="lilac" size={40} color="#1A1033" />
             <View style={{ flex: 1 }}>
-              <Txt size={14} weight="600">
+              <Txt size={16} weight="700" color="#1A1033">
                 {`Hub ${shortId}`}
               </Txt>
-              <Txt size={12} color={p.muted}>
+              <Txt size={12} color="#1A1033">
                 {`Paired ${since}`}
               </Txt>
             </View>
           </Row>
-          <Btn kind="ghost" label="Unpair" icon="close" size="sm" onPress={unpairHub} style={{ alignSelf: 'flex-start' }} />
+          <Btn kind="secondary" label="Unpair" icon="close" size="sm" onPress={unpairHub} style={{ alignSelf: 'flex-start' }} />
         </Card>
       </Appear>
 
-      <Txt size={12} weight="600" color={p.muted}>
-        ALERTS FROM YOUR HUB
+      <Txt size={16} weight="600">
+        Alerts from your hub
       </Txt>
 
       {messages.length === 0 ? (
         <Appear index={1}>
-          <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <Icon name="check" size={16} color={p.muted} />
-            <Txt size={13} color={p.muted} style={{ flex: 1 }}>
+          <Card tint="green" style={{ flexDirection: 'row', alignItems: 'center', gap: 10, overflow: 'hidden', minHeight: 110, paddingRight: 88 }}>
+            <View pointerEvents="none" style={{ position: 'absolute', right: -12, top: -14, transform: [{ rotate: '12deg' }] }}>
+              <Shield size={84} />
+            </View>
+            <Icon name="check" size={16} color={p.tint.green.ink} />
+            <Txt size={13} color={p.tint.green.ink} style={{ flex: 1 }}>
               Nothing from the hub yet. It checks every 45 seconds while the app is open.
             </Txt>
           </Card>

@@ -9,6 +9,9 @@ import { HealthStore, newKey } from './healthStore.ts';
 import { Hub } from './hub.ts';
 import { AuditLog, Outbox } from './outbox.ts';
 import type { Sender } from './outbox.ts';
+import { PERSONAS, personaById } from './personas.ts';
+import { computeSituation } from './situation.ts';
+import type { Situation } from './situation.ts';
 import { instantiate, templateById, TEMPLATES } from './templates.ts';
 import { TelegramLink } from './telegram.ts';
 import type { TelegramState } from './telegram.ts';
@@ -82,7 +85,7 @@ export class HubApp {
       health: this.health,
       outbox: this.outbox,
       source: { offline: this.offline },
-      rewrite: (a, fallback) => (this.brain ? haikuWriter(this.brain)(a, fallback) : Promise.resolve(null)),
+      rewrite: (a, fallback, persona) => (this.brain ? haikuWriter(this.brain)(a, fallback, persona) : Promise.resolve(null)),
     });
     this.setBrain(this.cfg.brain, this.cfg.anthropicKey);
     if (this.cfg.telegramToken) void this.connectTelegram(this.cfg.telegramToken).catch(() => {});
@@ -154,6 +157,29 @@ export class HubApp {
     this.hub.upsert(a);
     return a;
   }
+  /**
+   * Enrol a new agent in the School: pick a persona, optionally a template (else the persona's first), a name, a place and
+   * the people it looks after. It starts awake. Returns null for an unknown persona or template.
+   */
+  enrol(o: { personaId: string; name?: string; templateId?: string; place?: Agent['place']; members?: string[]; look?: Agent['look']; channels?: Agent['channels']; awake?: boolean }): Agent | null {
+    const persona = personaById(o.personaId);
+    if (!persona) return null;
+    const t = templateById(o.templateId ?? persona.templates[0]);
+    if (!t) return null;
+    const a = instantiate(t, {
+      name: o.name?.trim() || `${persona.name}'s ${t.name}`,
+      avatar: persona.avatar,
+      personaId: persona.id,
+      look: o.look ?? persona.look,
+      enabled: o.awake ?? true,
+      ...(o.place ? { place: o.place } : {}),
+      ...(o.members?.length ? { members: o.members } : {}),
+      ...(o.channels?.length ? { channels: o.channels } : {}),
+    });
+    this.hub.upsert(a);
+    return a;
+  }
+
   async addRule(agentId: string, text: string) {
     const a = this.hub.agents().find((x) => x.id === agentId);
     if (!a) return null;
@@ -213,10 +239,17 @@ export class HubApp {
     return { connected: !!this.telegram, paired: this.cfg.telegram.chats.length, bot: '' };
   }
 
+  /** Where the hub stands right now: calm, watch, alert or recovering. */
+  situation(now = Date.now()): Situation {
+    return computeSituation({ alerts: this.hub.alerts(), runs: this.hub.runs(), now, agents: this.hub.agents() });
+  }
+
   state() {
     return {
+      situation: this.situation(),
       agents: this.hub.agents(),
       templates: TEMPLATES,
+      personas: PERSONAS,
       runs: this.hub.runs().slice(-50).reverse(),
       alerts: this.hub.alerts().slice(-30).reverse(),
       audit: this.audit.read(50).reverse(),

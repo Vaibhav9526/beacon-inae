@@ -58,6 +58,10 @@ export interface Agent {
   name: string;
   /** Which pixel avatar the app shows: a key of the avatar cast (sentinel, medic, rescue, guardian, scout, ...). */
   avatar: string;
+  /** The persona it was enrolled with in the School (firefighter, doctor, ...). Sets its voice and default look. */
+  personaId?: string;
+  /** Saved custom look, drawn by the UI; absent means the persona's default. */
+  look?: Look;
   templateId?: string;
   enabled: boolean;
   watch: SourceKind[];
@@ -151,4 +155,39 @@ export interface SourceOptions {
   offline?: boolean;
   fetch?: (url: string) => Promise<{ ok: boolean; json(): Promise<unknown>; text(): Promise<string> }>;
   now?: () => number;
+}
+
+/** How a pixel person is drawn: hair style, skin tone, clothes colour. Indexes are small ints the avatar code wraps. */
+export interface Look {
+  hair: number;
+  skin: number;
+  color: string;
+}
+
+/**
+ * A persona is a role you enrol an agent as in the Beacon School: it brings a voice (how alerts are worded), a default
+ * look, what it is good at and the templates that suit it. It never changes the facts of an alert, only the wording.
+ */
+export interface Persona {
+  id: string;
+  /** Default first name for a new agent of this persona. */
+  name: string;
+  /** e.g. 'Firefighter' */
+  role: string;
+  tagline: string;
+  /** Plain description shown in the School, two sentences. */
+  about: string;
+  tint: 'pink' | 'yellow' | 'blue' | 'green' | 'lilac' | 'peach';
+  avatar: string;
+  look: Look;
+  /** Short skills list, shown as chips. */
+  skills: string[];
+  /** One instruction line for the wording model: how this person speaks. */
+  voice: string;
+  /** Appended to a message when no model rewrites it, e.g. 'Captain Flint, fire safety'. */
+  signature: string;
+  /** Templates that suit this persona (ids from templates.ts). The first one is the default when none is chosen. */
+  templates: string[];
+  /** Phone voice role for read-aloud (didi, asha, veer, default). */
+  speaks: 'didi' | 'asha' | 'veer' | 'default';
 }

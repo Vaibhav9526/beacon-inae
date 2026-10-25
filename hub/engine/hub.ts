@@ -5,10 +5,11 @@ import type { HealthStore } from './healthStore.ts';
 import { combine, emptyState, plainText } from './orchestrator.ts';
 import type { OrchestratorState } from './orchestrator.ts';
 import { Outbox } from './outbox.ts';
+import { personaById } from './personas.ts';
 import { evaluateAgent } from './rules.ts';
 import { sampleMetrics } from './sample.ts';
 import { fetchMetrics } from './sources.ts';
-import type { Agent, Alert, Metrics, RunLogEntry, Signal, SourceOptions } from './types.ts';
+import type { Agent, Alert, Metrics, Persona, RunLogEntry, Signal, SourceOptions } from './types.ts';
 
 interface Persisted {
   agents: Agent[];
@@ -24,7 +25,7 @@ export interface HubOptions {
   outbox: Outbox;
   source?: SourceOptions;
   /** Optional wording pass (Haiku). Gets the deterministic text and facts; must return short plain text or null. */
-  rewrite?: (alert: Alert, fallback: string) => Promise<string | null>;
+  rewrite?: (alert: Alert, fallback: string, persona?: Persona) => Promise<string | null>;
   now?: () => number;
 }
 
@@ -111,12 +112,15 @@ export class Hub {
     const out: Alert[] = [];
     for (const al of alerts) {
       const base = plainText(al);
+      // the loudest signal's agent speaks: its persona sets the voice and the sign-off
+      const speaker = personaById(this.d.agents.find((a) => a.id === al.signals[0]?.agentId)?.personaId);
       let text = base;
       try {
-        text = (await this.o.rewrite?.(al, base)) ?? base;
+        text = (await this.o.rewrite?.(al, base, speaker)) ?? base;
       } catch {
         /* keep the plain wording */
       }
+      if (speaker) text = `${text} - ${speaker.signature}`;
       const done = await this.o.outbox.deliver(al, text.slice(0, 400));
       this.d.alerts.push(done);
       out.push(done);

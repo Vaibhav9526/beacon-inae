@@ -2,6 +2,7 @@ import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useRef, useState } from 'react';
 import { Animated, Platform, View } from 'react-native';
+import { Shield, Sun } from '../../components/Deco';
 import { Icon } from '../../components/Icon';
 import { PixelAvatar, SPECIES, buddy } from '../../components/PixelAvatar';
 import { Screen } from '../../components/Screen';
@@ -12,6 +13,8 @@ import { getDrill } from '../../kb/kidDrills';
 import { speak } from '../../services/speech';
 import { useSettings } from '../../state/settings';
 import { radius } from '../../theme';
+
+const OPTION_TINTS = ['blue', 'yellow', 'lilac', 'peach'] as const;
 
 export default function DrillScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -54,24 +57,30 @@ export default function DrillScreen() {
     <Screen title={L(drill.title)}>
       {i === -1 ? (
         <Appear>
-          <View style={{ alignItems: 'center', gap: 16, paddingTop: 36 }}>
+          <Card style={{ alignItems: 'center', gap: 16, paddingTop: 64, paddingBottom: 28, paddingHorizontal: 18, overflow: 'hidden' }}>
+            <View pointerEvents="none" style={{ position: 'absolute', right: -12, top: -16, transform: [{ rotate: '12deg' }] }}>
+              <Shield size={84} />
+            </View>
             <IconTile name={drill.icon} tint={drill.tint} size={72} />
             <Txt size={16} weight="500" style={{ textAlign: 'center', paddingHorizontal: 12 }}>
               {L(drill.intro)}
             </Txt>
             <Btn label={t('kidLetsGo')} size="lg" onPress={() => setI(0)} />
-          </View>
+          </Card>
         </Appear>
       ) : done ? (
         <Appear>
-          <View style={{ alignItems: 'center', gap: 14, paddingTop: 36 }}>
+          <Card style={{ alignItems: 'center', gap: 14, paddingTop: 64, paddingBottom: 28, paddingHorizontal: 18, overflow: 'hidden' }}>
+            <View pointerEvents="none" style={{ position: 'absolute', right: -12, top: -16, transform: [{ rotate: '12deg' }] }}>
+              <Sun size={84} />
+            </View>
             <PixelAvatar spec={buddy(SPECIES[avatar % SPECIES.length])} size={84} bg={p.tint.yellow.bg} animated />
             <Stars n={stars} size={26} />
             <Txt size={20} weight="600">
               {lang === 'hi' ? 'शाबाश!' : 'Well done!'}
             </Txt>
             <Btn label={t('done')} onPress={() => router.back()} />
-          </View>
+          </Card>
         </Appear>
       ) : (
         <View style={{ gap: 14 }}>
@@ -93,15 +102,17 @@ export default function DrillScreen() {
               const chosen = picked === k;
               const good = chosen && o.correct;
               const bad = chosen && !o.correct;
+              const tone = good ? 'green' : bad ? 'pink' : OPTION_TINTS[k % OPTION_TINTS.length];
+              const ink = p.tint[tone].ink;
               return (
                 <Appear key={`${i}-${k}`} index={k + 1}>
                   <Press accessibilityRole="button" onPress={() => choose(k)}>
-                    <Card style={{ padding: 12, borderColor: good ? p.ok : bad ? p.danger : p.border, backgroundColor: good ? p.ok + '14' : bad ? p.danger + '14' : p.card }}>
+                    <Card tint={tone} style={{ padding: 12, borderRadius: 24 }}>
                       <Row style={{ gap: 12 }}>
-                        <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: good ? p.ok : bad ? p.danger : p.cardAlt, alignItems: 'center', justifyContent: 'center' }}>
-                          {chosen ? <Icon name={o.correct ? 'check' : 'close'} size={13} color="#fff" /> : <Txt size={11.5} weight="600" color={p.muted}>{'ABC'[k]}</Txt>}
+                        <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: ink, alignItems: 'center', justifyContent: 'center' }}>
+                          {chosen ? <Icon name={o.correct ? 'check' : 'close'} size={13} color={p.tint[tone].bg} /> : <Txt size={11.5} weight="600" color={p.tint[tone].bg}>{'ABC'[k]}</Txt>}
                         </View>
-                        <Txt size={14.5} style={{ flex: 1 }}>
+                        <Txt size={14.5} color={ink} style={{ flex: 1 }}>
                           {L(o.label)}
                         </Txt>
                       </Row>

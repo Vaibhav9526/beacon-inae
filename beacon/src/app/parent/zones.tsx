@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { TextInput } from 'react-native';
+import { TextInput, View } from 'react-native';
+import { Shield } from '../../components/Deco';
 import { Icon } from '../../components/Icon';
 import { Screen } from '../../components/Screen';
 import { ZoneMap } from '../../components/ZoneMap';
@@ -57,17 +58,27 @@ export default function Zones() {
 
   return (
     <Screen back={false} title={t('safeZones')}>
+      <Appear>
+        <Card tint="green" style={{ overflow: 'hidden', minHeight: 130, justifyContent: 'flex-end', padding: 20 }}>
+          <Txt size={28} weight="700" color={p.tint.green.ink} style={{ paddingRight: 92 }}>
+            {t('safeZones')}
+          </Txt>
+          <View pointerEvents="none" style={{ position: 'absolute', right: -12, top: -14, transform: [{ rotate: '12deg' }] }}>
+            <Shield size={92} />
+          </View>
+        </Card>
+      </Appear>
       <ZoneMap zones={zones} me={me} />
       {zones.map((z, i) => (
         <Appear key={z.id} index={i}>
-          <Card style={{ padding: 12 }}>
+          <Card tint="green" style={{ padding: 12, borderRadius: 24 }}>
             <Row style={{ justifyContent: 'space-between' }}>
               <Row style={{ gap: 10 }}>
-                <Icon name="pin" size={15} color={p.ok} />
-                <Txt size={14.5} weight="500">
+                <Icon name="pin" size={15} color={p.tint.green.ink} />
+                <Txt size={14.5} weight="600" color={p.tint.green.ink}>
                   {z.name}
                 </Txt>
-                <Txt size={12} color={p.muted}>
+                <Txt size={12} color={p.tint.green.ink}>
                   {z.radius} m
                 </Txt>
               </Row>
@@ -77,7 +88,7 @@ export default function Zones() {
         </Appear>
       ))}
       <Card style={{ gap: 10 }}>
-        <TextInput value={name} onChangeText={setName} placeholder={t('zoneName')} placeholderTextColor={p.muted} style={{ backgroundColor: p.cardAlt, borderRadius: radius.md, paddingHorizontal: 14, height: 42, color: p.text, fontSize: 14, fontFamily: 'Lexend_400Regular', paddingVertical: 0 }} />
+        <TextInput value={name} onChangeText={setName} placeholder={t('zoneName')} placeholderTextColor={p.muted} style={{ backgroundColor: p.cardAlt, borderRadius: radius.md, paddingHorizontal: 14, height: 42, color: p.text, fontSize: 14, fontFamily: 'Poppins_400Regular', paddingVertical: 0 }} />
         <Row style={{ gap: 6 }}>
           {[100, 200, 500, 1000].map((r) => (
             <Chip key={r} label={`${r} m`} active={rad === r} onPress={() => setRad(r)} />

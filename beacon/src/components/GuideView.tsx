@@ -62,15 +62,15 @@ export function GuideView({ guide }: { guide: Guide }) {
       </Appear>
 
       <Appear index={2}>
-        <Card style={{ gap: 12 }}>
+        <Card tint={tint} style={{ gap: 12, padding: 16 }}>
           {guide.steps.map((s, i) => (
             <Row key={i} style={{ alignItems: 'flex-start', gap: 12 }}>
-              <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: p.tint[tint].bg, alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>
-                <Txt size={11.5} weight="700" color={p.tint[tint].ink}>
+              <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: p.tint[tint].ink, alignItems: 'center', justifyContent: 'center', marginTop: 1 }}>
+                <Txt size={11.5} weight="700" color={p.tint[tint].bg}>
                   {i + 1}
                 </Txt>
               </View>
-              <Txt size={15} style={{ flex: 1 }}>
+              <Txt size={15} weight="500" color={p.tint[tint].ink} style={{ flex: 1 }}>
                 {L(s)}
               </Txt>
             </Row>

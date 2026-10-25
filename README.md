@@ -126,3 +126,12 @@ npm test
 - Phone: "Pair a phone" shows a QR; scan it in Beacon > Desktop hub. Alerts arrive through the Beacon server relay (`server/src/relay.ts`).
 - Brain: none (built-in rules), an external CLI (`claude`, `codex`, `gemini`) or the Anthropic API (Haiku 5.5 rewrites wording; numbers it did not get are rejected).
 - `BEACON_HUB_OFFLINE=1` uses built-in sample data. `BEACON_SERVER` points at the Beacon server (default http://127.0.0.1:8787).
+
+## Hub security model
+
+- Nothing leaves the computer without your say-so: the first message on each channel stops at the approval gate, and "always allow" is remembered per channel.
+- Every queued, approved, declined, sent and failed message (with the error) is written to an append-only `audit.jsonl`.
+- Family health readings are encrypted on disk (`health.bin`, AES-GCM under a key you are shown once offline, `newKey()`), never in plain text.
+- The local UI only listens on 127.0.0.1 and needs the per-session token printed with `npm start` (the `?t=` URL), and the MCP server runs over your choice of stdio, so there is no open HTTP surface.
+- Only the short, approved alert text (a few hundred characters, truncated by the outbox) is handed to Telegram or the Beacon relay; raw health history and rule configuration never leave the machine.
+- Secrets live in single files the hub creates itself: `hub-identity.json` (the ed25519 signing key used on every relay request) is written with file mode 600, and the pairing token is single-use, shown in the QR once and never stored.

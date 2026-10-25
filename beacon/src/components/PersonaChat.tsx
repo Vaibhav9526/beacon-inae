@@ -5,14 +5,20 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { runAction } from '../ai/actions';
 import { needleEngine, needleSupported, startNeedle } from '../ai/needle';
 import { type Block, PERSONAS, type PersonaKey, type Reply, reply as makeReply } from '../ai/persona';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocal, useT } from '../i18n';
 import { speak, stopSpeaking } from '../services/speech';
 import { useSettings } from '../state/settings';
 import { radius } from '../theme';
+import { Flower } from './Deco';
 import { Icon } from './Icon';
 import { MicButton } from './MicButton';
 import { PixelAvatar, cast } from './PixelAvatar';
-import { Btn, Chip, Press, Row, Txt, useTheme } from './ui';
+import { useKeyboardOpen } from './TabBar';
+import { Btn, Card, Chip, Press, Row, Txt, type TintName, useTheme } from './ui';
+
+/** Bottom clearance that Screen reserves on tab routes (bar 64 + 16 margin + 24 breathing room, plus the safe area). */
+const TAB_CLEARANCE = 56;
 
 interface Msg {
   id: number;
@@ -30,11 +36,16 @@ export function PersonaChat({ persona, onPhoto, incoming, bottomInset = 0 }: { p
   const lang = useSettings((s) => s.lang);
   const readAloud = useSettings((s) => s.readAloud);
   const def = PERSONAS[persona];
+  // each persona has its own vivid tint: the header card and the persona's replies share it
+  const ptint: TintName = persona === 'didi' ? 'yellow' : persona === 'asha' ? 'green' : 'peach';
+  const pt = p.tint[ptint];
   const [msgs, setMsgs] = useState<Msg[]>([{ id: 0, from: 'bot', text: L(def.greeting) }]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [needleReady, setNeedleReady] = useState(false);
   const scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  const insets = useSafeAreaInsets();
+  const kbOpen = useKeyboardOpen();
 
   useEffect(() => {
     if (needleSupported) void startNeedle().then((s) => setNeedleReady(s.state === 'ready'));
@@ -73,7 +84,7 @@ export function PersonaChat({ persona, onPhoto, incoming, bottomInset = 0 }: { p
     switch (b.type) {
       case 'text':
         return (
-          <Txt key={i} size={14.5}>
+          <Txt key={i} size={14.5} color={pt.ink}>
             {b.text}
           </Txt>
         );
@@ -81,9 +92,9 @@ export function PersonaChat({ persona, onPhoto, incoming, bottomInset = 0 }: { p
         return (
           <Row key={i} style={{ gap: 6, alignItems: 'flex-start' }}>
             <View style={{ marginTop: 3 }}>
-              <Icon name="alert" size={13} color={p.danger} />
+              <Icon name="alert" size={13} color={pt.ink} />
             </View>
-            <Txt size={13} weight="500" color={p.danger} style={{ flex: 1 }}>
+            <Txt size={13} weight="600" color={pt.ink} style={{ flex: 1 }}>
               {b.text}
             </Txt>
           </Row>
@@ -91,15 +102,15 @@ export function PersonaChat({ persona, onPhoto, incoming, bottomInset = 0 }: { p
       case 'steps':
         return (
           <View key={i} style={{ gap: 6 }}>
-            <Txt size={14} weight="700">
+            <Txt size={14} weight="700" color={pt.ink}>
               {b.title}
             </Txt>
             {b.steps.map((s, k) => (
               <Row key={k} style={{ alignItems: 'flex-start', gap: 8 }}>
-                <Txt size={13} weight="700" color={p.muted} style={{ width: 16 }}>
+                <Txt size={13} weight="700" color={pt.ink} style={{ width: 16, opacity: 0.7 }}>
                   {k + 1}
                 </Txt>
-                <Txt size={13.5} style={{ flex: 1 }}>
+                <Txt size={13.5} color={pt.ink} style={{ flex: 1 }}>
                   {s}
                 </Txt>
               </Row>
@@ -123,34 +134,41 @@ export function PersonaChat({ persona, onPhoto, incoming, bottomInset = 0 }: { p
   };
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={80}>
+    // This chat always sits on a tab route, where Screen reserves the bar clearance below it. While the keyboard is
+    // open the bar is hidden, so a negative margin pulls the composer down into that reserved space.
+    <KeyboardAvoidingView style={{ flex: 1, marginBottom: kbOpen ? -(TAB_CLEARANCE + insets.bottom) : 0 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={80}>
       <ScrollView ref={scroll} style={{ flex: 1 }} contentContainerStyle={{ padding: 16, gap: 12 }} onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: true })} showsVerticalScrollIndicator={false}>
-        <Row style={{ gap: 12 }}>
-          <PixelAvatar spec={cast(persona)} size={48} bg={p.tint[persona === 'didi' ? 'yellow' : persona === 'asha' ? 'green' : 'peach'].bg} animated />
-          <View style={{ flex: 1 }}>
-            <Txt size={17} weight="700">
-              {L(def.name)}
-            </Txt>
-            <Txt size={12} color={p.muted}>
-              {L(def.role)} · {needleReady ? t('aiOnDevice') : t('aiKeywords')}
-            </Txt>
+        <Card tint={ptint} style={{ overflow: 'hidden', minHeight: 104, justifyContent: 'center', padding: 16 }}>
+          <Row style={{ gap: 12, paddingRight: 84 }}>
+            <PixelAvatar spec={cast(persona)} size={48} bg="rgba(255,255,255,0.6)" animated />
+            <View style={{ flex: 1 }}>
+              <Txt size={17} weight="700" color={pt.ink}>
+                {L(def.name)}
+              </Txt>
+              <Txt size={12} color={pt.ink} style={{ opacity: 0.8 }}>
+                {L(def.role)} · {needleReady ? t('aiOnDevice') : t('aiKeywords')}
+              </Txt>
+            </View>
+          </Row>
+          <View pointerEvents="none" style={{ position: 'absolute', right: -12, top: -14, transform: [{ rotate: '12deg' }] }}>
+            <Flower size={84} />
           </View>
-        </Row>
+        </Card>
         {msgs.map((m) => (
           <Animated.View
             entering={FadeInDown.duration(220)}
             key={m.id}
-            style={{ alignSelf: m.from === 'me' ? 'flex-end' : 'flex-start', maxWidth: '90%', backgroundColor: m.from === 'me' ? p.accent : p.card, paddingVertical: 10, paddingHorizontal: 12, borderRadius: radius.lg, borderBottomRightRadius: m.from === 'me' ? 5 : radius.lg, borderBottomLeftRadius: m.from === 'me' ? radius.lg : 5, gap: 8, borderWidth: m.from === 'bot' ? 1 : 0, borderColor: p.border }}>
+            style={{ alignSelf: m.from === 'me' ? 'flex-end' : 'flex-start', maxWidth: '90%', backgroundColor: m.from === 'me' ? p.cardAlt : pt.bg, paddingVertical: 11, paddingHorizontal: 14, borderRadius: 24, borderBottomRightRadius: m.from === 'me' ? 6 : 24, borderBottomLeftRadius: m.from === 'me' ? 24 : 6, gap: 8 }}>
             {m.text ? (
-              <Txt size={14.5} color={m.from === 'me' ? p.onAccent : p.text}>
+              <Txt size={14.5} color={m.from === 'me' ? p.text : pt.ink}>
                 {m.text}
               </Txt>
             ) : null}
             {m.reply?.blocks.map(renderBlock)}
             {m.reply && !readAloud ? (
               <Press accessibilityLabel={t('readAloud')} onPress={() => void speak(m.reply!.speech, lang, persona)} style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                <Icon name="speaker" size={13} color={p.muted} />
-                <Txt size={11.5} color={p.muted}>
+                <Icon name="speaker" size={13} color={pt.ink} />
+                <Txt size={11.5} weight="600" color={pt.ink}>
                   {t('readAloud')}
                 </Txt>
               </Press>
@@ -170,15 +188,15 @@ export function PersonaChat({ persona, onPhoto, incoming, bottomInset = 0 }: { p
           </Txt>
         ) : null}
       </ScrollView>
-      <Row style={{ paddingHorizontal: 12, paddingTop: 10, paddingBottom: 10 + bottomInset, gap: 8, backgroundColor: p.bg, borderTopWidth: 1, borderTopColor: p.border }}>
+      <Row style={{ paddingHorizontal: 12, paddingTop: 10, paddingBottom: 10 + bottomInset, gap: 8, backgroundColor: p.bg }}>
         {onPhoto ? (
-          <Press accessibilityLabel={t('takePhoto')} onPress={onPhoto} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: p.cardAlt, alignItems: 'center', justifyContent: 'center' }}>
+          <Press accessibilityLabel={t('takePhoto')} onPress={onPhoto} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: p.cardAlt, alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="camera" size={17} />
           </Press>
         ) : null}
         <MicButton onText={(x) => void ask(x)} />
-        <TextInput value={input} onChangeText={setInput} onSubmitEditing={() => void ask(input)} placeholder={t('aidPlaceholder')} placeholderTextColor={p.muted} returnKeyType="send" style={{ flex: 1, height: 40, backgroundColor: p.card, borderRadius: radius.pill, borderWidth: 1, borderColor: p.border, paddingHorizontal: 14, color: p.text, fontSize: 13.5, fontFamily: 'Lexend_400Regular', paddingVertical: 0 }} />
-        <Press accessibilityLabel={t('send')} onPress={() => void ask(input)} disabled={busy || !input.trim()} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: p.accent, alignItems: 'center', justifyContent: 'center', opacity: busy || !input.trim() ? 0.4 : 1 }}>
+        <TextInput value={input} onChangeText={setInput} onSubmitEditing={() => void ask(input)} placeholder={t('aidPlaceholder')} placeholderTextColor={p.muted} returnKeyType="send" style={{ flex: 1, height: 44, backgroundColor: p.card, borderRadius: radius.pill, paddingHorizontal: 18, color: p.text, fontSize: 13.5, fontFamily: 'Poppins_400Regular', paddingVertical: 0 }} />
+        <Press accessibilityLabel={t('send')} onPress={() => void ask(input)} disabled={busy || !input.trim()} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: p.accent, alignItems: 'center', justifyContent: 'center', opacity: busy || !input.trim() ? 0.4 : 1 }}>
           <Icon name="send" size={16} color={p.onAccent} />
         </Press>
       </Row>

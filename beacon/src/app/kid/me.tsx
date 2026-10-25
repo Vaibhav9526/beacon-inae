@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import React, { useState } from 'react';
 import { TextInput, View } from 'react-native';
+import { Sun } from '../../components/Deco';
 import { Icon, type IconName } from '../../components/Icon';
 import { PixelAvatar, SPECIES, buddy } from '../../components/PixelAvatar';
 import { Screen } from '../../components/Screen';
@@ -38,20 +39,25 @@ export default function Me() {
   return (
     <Screen back={false} bottomPad={120}>
       <Appear>
-        <Row style={{ gap: 14, paddingTop: 6 }}>
-          <PixelAvatar spec={buddy(SPECIES[s.kidAvatar % SPECIES.length])} size={64} bg={p.tint.yellow.bg} animated />
-          <View style={{ gap: 3 }}>
-            <Txt size={22} weight="600">
-              {s.kidName || 'Explorer'}
-            </Txt>
-            <Row style={{ gap: 5 }}>
-              <Icon name="star" size={13} color="#E9B44C" fill="#E9B44C" />
-              <Txt size={13} color={p.muted}>
-                {total} {t('kidStars')}
+        <Card tint="yellow" style={{ overflow: 'hidden', minHeight: 120, justifyContent: 'center', padding: 18 }}>
+          <Row style={{ gap: 14 }}>
+            <PixelAvatar spec={buddy(SPECIES[s.kidAvatar % SPECIES.length])} size={64} bg="rgba(255,255,255,0.6)" animated />
+            <View style={{ gap: 3, flex: 1, paddingRight: 84 }}>
+              <Txt size={28} weight="700" color={p.tint.yellow.ink}>
+                {s.kidName || 'Explorer'}
               </Txt>
-            </Row>
+              <Row style={{ gap: 5 }}>
+                <Icon name="star" size={13} color={p.tint.yellow.ink} fill={p.tint.yellow.ink} />
+                <Txt size={13} color={p.tint.yellow.ink}>
+                  {total} {t('kidStars')}
+                </Txt>
+              </Row>
+            </View>
+          </Row>
+          <View pointerEvents="none" style={{ position: 'absolute', right: -12, top: -16, transform: [{ rotate: '12deg' }] }}>
+            <Sun size={92} />
           </View>
-        </Row>
+        </Card>
       </Appear>
 
       <SectionTitle>{t('kidChooseBuddy')}</SectionTitle>
@@ -82,14 +88,14 @@ export default function Me() {
         })}
       </Row>
 
-      <Card style={{ gap: 4 }}>
-        <Txt size={11} weight="600" color={p.muted} style={{ textTransform: 'uppercase', letterSpacing: 0.6 }}>
+      <Card tint="blue" style={{ gap: 4 }}>
+        <Txt size={14} weight="600" color={p.tint.blue.ink}>
           {t('yourCode')}
         </Txt>
-        <Txt size={26} weight="600" style={{ letterSpacing: 4 }}>
+        <Txt size={26} weight="700" color={p.tint.blue.ink} style={{ letterSpacing: 4 }}>
           {s.familyCode}
         </Txt>
-        <Txt size={12} color={p.muted}>
+        <Txt size={12} color={p.tint.blue.ink}>
           {t('shareCodeHint')}
         </Txt>
       </Card>
@@ -113,7 +119,7 @@ export default function Me() {
             {s.lang === 'hi' ? 'माता-पिता के लिए: ' : 'For parents: '} {gate.a} × {gate.b} = ?
           </Txt>
           <Row>
-            <TextInput value={answer} onChangeText={setAnswer} keyboardType="number-pad" onSubmitEditing={check} style={{ flex: 1, height: 40, backgroundColor: p.cardAlt, borderRadius: radius.pill, paddingHorizontal: 16, fontSize: 15, color: p.text, fontFamily: 'Lexend_400Regular', paddingVertical: 0 }} />
+            <TextInput value={answer} onChangeText={setAnswer} keyboardType="number-pad" onSubmitEditing={check} style={{ flex: 1, height: 40, backgroundColor: p.cardAlt, borderRadius: radius.pill, paddingHorizontal: 16, fontSize: 15, color: p.text, fontFamily: 'Poppins_400Regular', paddingVertical: 0 }} />
             <Btn label="OK" onPress={check} />
           </Row>
         </Card>

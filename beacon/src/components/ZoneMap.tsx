@@ -39,7 +39,7 @@ export function ZoneMap({ child, zones, me, height = 150 }: { child?: Pt; zones:
   const okc = p.ok;
 
   return (
-    <View style={{ borderRadius: 16, overflow: 'hidden', backgroundColor: p.cardAlt, borderWidth: 1, borderColor: p.border }}>
+    <View style={{ borderRadius: 24, overflow: 'hidden', backgroundColor: p.card }}>
       <Svg width="100%" height={height} viewBox={`0 0 ${W} ${height}`}>
         <Rect width={W} height={height} fill="none" />
         {[0.25, 0.5, 0.75].map((f) => (

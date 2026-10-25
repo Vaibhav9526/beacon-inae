@@ -7,6 +7,8 @@ import { type Mode, type Palette, fonts, radius, usePalette } from '../theme';
 import { Icon, type IconName } from './Icon';
 
 const ThemeCtx = createContext<{ p: Palette; mode: Mode } | null>(null);
+/** Ink colour of the nearest tinted Card; text inside it defaults to this so it reads on the vivid block. */
+export const InkCtx = createContext<string | null>(null);
 
 export function ThemeProvider({ mode, children }: { mode: Mode; children: React.ReactNode }) {
   const p = usePalette(mode);
@@ -22,27 +24,33 @@ export function useTheme() {
 
 // ---- type ----
 // Callers still pass the old sizes and weights; they are mapped to the smaller, lighter scale in one place.
-const sizeOf = (s: number) => (s <= 13 ? s - 0.5 : s <= 16 ? s - 2 : s <= 24 ? s - 4 : s * 0.7);
+const sizeOf = (s: number) => (s <= 13 ? s - 0.5 : s <= 16 ? s - 1.5 : s <= 24 ? s - 3 : s * 0.8);
 const familyOf = (w: TextStyle['fontWeight']) => {
   const n = typeof w === 'string' ? parseInt(w, 10) || 400 : (w ?? 400);
-  return n >= 700 ? fonts.semibold : n >= 600 ? fonts.medium : n >= 500 ? fonts.medium : fonts.regular;
+  return n >= 700 ? fonts.bold : n >= 600 ? fonts.semibold : n >= 500 ? fonts.medium : fonts.regular;
 };
 
 /** Text that honours the large-text setting and the palette. */
 export function Txt({ size = 15, weight = '400', color, style, ...rest }: TextProps & { size?: number; weight?: TextStyle['fontWeight']; color?: string }) {
   const { p } = useTheme();
+  const ink = useContext(InkCtx);
   const scale = useSettings((s) => (s.largeText ? 1.25 : 1));
   const fs = Math.max(11, sizeOf(size)) * scale;
-  return <Text {...rest} style={[{ fontSize: fs, fontFamily: familyOf(weight), color: color ?? p.text, lineHeight: fs * 1.42, includeFontPadding: false }, style]} />;
+  return <Text {...rest} style={[{ fontSize: fs, fontFamily: familyOf(weight), color: color ?? ink ?? p.text, lineHeight: fs * 1.42, includeFontPadding: false }, style]} />;
 }
 
 // ---- surfaces ----
 export type TintName = keyof Palette['tint'];
 
-export function Card({ style, tint, ...rest }: ViewProps & { tint?: TintName }) {
+export function Card({ style, tint, children, ...rest }: ViewProps & { tint?: TintName }) {
   const { p } = useTheme();
   const t = tint ? p.tint[tint] : null;
-  return <View {...rest} style={[{ backgroundColor: t ? t.bg : p.card, borderRadius: radius.lg, padding: 14, borderWidth: t ? 0 : 1, borderColor: p.border }, style]} />;
+  // tinted cards are borderless vivid blocks; untinted cards keep a 1px hairline
+  return (
+    <View {...rest} style={[{ backgroundColor: t ? t.bg : p.card, borderRadius: 24, padding: 14, borderWidth: t ? 0 : 1, borderColor: p.border }, style]}>
+      {t ? <InkCtx.Provider value={t.ink}>{children}</InkCtx.Provider> : children}
+    </View>
+  );
 }
 
 /** A small tinted circle holding an SVG icon: the app's replacement for emoji bullets. */
@@ -50,7 +58,7 @@ export function IconTile({ name, tint = 'lilac', size = 36, color }: { name: Ico
   const { p } = useTheme();
   const t = p.tint[tint];
   return (
-    <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: t.bg, alignItems: 'center', justifyContent: 'center' }}>
+    <View style={{ width: size, height: size, borderRadius: 16, backgroundColor: t.bg, alignItems: 'center', justifyContent: 'center' }}>
       <Icon name={name} size={size * 0.5} color={color ?? t.ink} />
     </View>
   );
@@ -159,7 +167,7 @@ export function Btn({
       style={[{ height: h, paddingHorizontal: size === 'sm' ? 12 : 18, borderRadius: radius.pill, backgroundColor: bg, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, opacity: disabled ? 0.45 : 1, borderWidth: kind === 'ghost' ? 1 : 0, borderColor: p.border }, style ?? {}]}>
       {icon ? <Icon name={icon} size={size === 'sm' ? 14 : 16} color={fg} /> : null}
       {label ? (
-        <Txt size={size === 'sm' ? 12.5 : 14.5} weight="500" color={fg}>
+        <Txt size={size === 'sm' ? 12.5 : 14.5} weight="600" color={fg}>
           {label}
         </Txt>
       ) : null}
@@ -202,7 +210,7 @@ export function SectionTitle({ children, right }: { children: React.ReactNode; r
   const { p } = useTheme();
   return (
     <Row style={{ justifyContent: 'space-between', marginTop: 4 }}>
-      <Txt size={12} weight="600" color={p.muted} style={{ letterSpacing: 0.6, textTransform: 'uppercase' }}>
+      <Txt size={16} weight="600" color={p.text}>
         {children}
       </Txt>
       {right}

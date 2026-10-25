@@ -9,16 +9,16 @@ import { type VoiceRole, useEleven } from '../services/elevenlabs';
 import { speak } from '../services/speech';
 import { useMesh } from '../services/mesh';
 import { visionStatus } from '../services/vision';
-import { VLM_TOTAL, ortAvailable, useVlm } from '../services/vlm';
+import { VLM_TOTAL, cancelVlmDownload, ortAvailable, useVlm } from '../services/vlm';
 import { voiceStatus, voiceSupported } from '../services/voice';
 import { useSettings } from '../state/settings';
 import { radius } from '../theme';
-import { Icon } from './Icon';
+import { Icon, type IconName } from './Icon';
 import { Switch } from './Switch';
-import { Btn, Card, Chip, Row, SectionTitle, Txt, useTheme } from './ui';
+import { Btn, Card, Chip, Row, Txt, type TintName, useTheme } from './ui';
 
+/** One label + switch row. Text takes the ink of the tinted tile it sits in. */
 function Toggle({ label, value, onChange, hint }: { label: string; value: boolean; onChange: (v: boolean) => void; hint?: string }) {
-  const { p } = useTheme();
   return (
     <Row style={{ justifyContent: 'space-between', gap: 12 }}>
       <View style={{ flex: 1 }}>
@@ -26,13 +26,36 @@ function Toggle({ label, value, onChange, hint }: { label: string; value: boolea
           {label}
         </Txt>
         {hint ? (
-          <Txt size={11.5} color={p.muted}>
+          <Txt size={11.5} style={{ opacity: 0.75 }}>
             {hint}
           </Txt>
         ) : null}
       </View>
       <Switch value={value} onValueChange={onChange} accessibilityLabel={label} />
     </Row>
+  );
+}
+
+/** Header row of a settings tile: a white icon well and a bold title. */
+function Head({ icon, title }: { icon: IconName; title: string }) {
+  return (
+    <Row style={{ gap: 10 }}>
+      <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.6)', alignItems: 'center', justifyContent: 'center' }}>
+        <Icon name={icon} size={18} color="#17171B" />
+      </View>
+      <Txt size={17} weight="700" style={{ flex: 1 }}>
+        {title}
+      </Txt>
+    </Row>
+  );
+}
+
+/** A rounded, vivid tile that groups one theme of settings. The tint sets the colour; the ink follows it. */
+function Tile({ tint, children }: { tint: TintName; children: React.ReactNode }) {
+  return (
+    <Card tint={tint} style={{ gap: 12, padding: 16, borderRadius: 28 }}>
+      {children}
+    </Card>
   );
 }
 
@@ -84,13 +107,16 @@ export function SettingsView() {
     }
   };
 
-  const input = { backgroundColor: p.cardAlt, borderRadius: radius.md, paddingHorizontal: 12, height: 40, color: p.text, fontSize: 13, fontFamily: 'Lexend_400Regular', paddingVertical: 0 } as const;
+  // text fields on a vivid tile: a soft white well with dark text, readable in both themes
+  const input = { backgroundColor: 'rgba(255,255,255,0.72)', borderRadius: radius.md, paddingHorizontal: 12, height: 40, color: '#17171B', fontSize: 13, fontFamily: 'Poppins_400Regular', paddingVertical: 0 } as const;
   const roles: VoiceRole[] = ['didi', 'asha', 'veer'];
+  const divider = { height: 1, backgroundColor: 'rgba(0,0,0,0.12)' } as const;
 
   return (
     <View style={{ gap: 12 }}>
-      <SectionTitle>{t('language')}</SectionTitle>
-      <Card style={{ gap: 12 }}>
+      {/* Look & language */}
+      <Tile tint="lilac">
+        <Head icon="language" title={lang === 'hi' ? 'रूप और भाषा' : 'Look and language'} />
         <Row style={{ gap: 6 }}>
           <Chip label="English" active={lang === 'en'} onPress={() => s.set({ lang: 'en' })} />
           <Chip label="हिन्दी" active={lang === 'hi'} onPress={() => s.set({ lang: 'hi' })} />
@@ -103,27 +129,30 @@ export function SettingsView() {
         <Toggle label={t('largeText')} value={s.largeText} onChange={(x) => s.set({ largeText: x })} />
         <Toggle label={t('highContrast')} value={s.highContrast} onChange={(x) => s.set({ highContrast: x })} />
         <Toggle label={t('haptics')} value={s.haptics} onChange={(x) => s.set({ haptics: x })} />
-      </Card>
+      </Tile>
 
-      <SectionTitle>Voice</SectionTitle>
-      <Card style={{ gap: 10 }}>
+      {/* Voice */}
+      <Tile tint="blue">
+        <Head icon="speaker" title="Voice" />
         <Toggle label={t('readAloudSetting')} value={s.readAloud} onChange={(x) => s.set({ readAloud: x })} />
         {s.mode !== 'kid' ? <Toggle label={t('voiceControl')} value={s.voiceControl} onChange={(x) => s.set({ voiceControl: x })} hint={v ? (v.onDevice ? 'on-device' : v.available ? 'uses the offline pack when installed' : t('voiceUnavailable')) : t('voiceUnavailable')} /> : null}
         <Row style={{ gap: 8 }}>
-          <Icon name="mic" size={14} color={p.muted} />
-          <Txt size={13} weight="500" style={{ flex: 1 }}>
+          <Icon name="mic" size={14} />
+          <Txt size={13} weight="600" style={{ flex: 1 }}>
             ElevenLabs voices
           </Txt>
-          {eleven.has ? <Txt size={11.5} color={p.ok}>on</Txt> : <Txt size={11.5} color={p.muted}>off</Txt>}
+          <Txt size={12} weight="600" style={{ opacity: eleven.has ? 1 : 0.7 }}>
+            {eleven.has ? 'on' : 'off'}
+          </Txt>
         </Row>
-        <Txt size={11.5} color={p.muted}>
+        <Txt size={11.5} style={{ opacity: 0.8 }}>
           Natural Hindi and English speech and transcription. The key stays in this phone's secure storage. Without it the phone's own voice is used.
         </Txt>
         {eleven.has ? (
           <View style={{ gap: 8 }}>
             {roles.map((r) => (
               <Row key={r} style={{ justifyContent: 'space-between' }}>
-                <Txt size={12.5} color={p.muted} style={{ textTransform: 'capitalize' }}>
+                <Txt size={12.5} style={{ textTransform: 'capitalize', opacity: 0.85 }}>
                   {r}
                 </Txt>
                 <Btn size="sm" kind="secondary" icon="speaker" label={eleven.voices[r]?.name ?? '—'} onPress={() => void speak(lang === 'hi' ? 'नमस्ते, मैं आपकी मदद के लिए यहाँ हूँ।' : 'Hello, I am here to help.', lang, r)} />
@@ -133,84 +162,123 @@ export function SettingsView() {
           </View>
         ) : (
           <>
-            <TextInput value={xi} onChangeText={setXi} placeholder="ElevenLabs API key" placeholderTextColor={p.muted} autoCapitalize="none" autoCorrect={false} secureTextEntry style={input} />
+            <TextInput value={xi} onChangeText={setXi} placeholder="ElevenLabs API key" placeholderTextColor="#5B6490" autoCapitalize="none" autoCorrect={false} secureTextEntry style={input} />
             <Row>
               <Btn size="sm" label={t('save')} onPress={() => void saveXi()} disabled={!xi.trim()} />
-              {xiMsg ? <Txt size={12} color={p.muted}>{xiMsg}</Txt> : null}
+              {xiMsg ? (
+                <Txt size={12} style={{ opacity: 0.85 }}>
+                  {xiMsg}
+                </Txt>
+              ) : null}
             </Row>
           </>
         )}
-      </Card>
+      </Tile>
 
+      {/* Safety & alerts (not shown in kid mode) */}
       {s.mode !== 'kid' ? (
-        <Card>
+        <Tile tint="pink">
+          <Head icon="siren" title={lang === 'hi' ? 'सुरक्षा और अलर्ट' : 'Safety and alerts'} />
           <Toggle label={t('shakeSos')} value={s.shakeSos} onChange={(x) => s.set({ shakeSos: x })} />
-        </Card>
+          <Toggle
+            label="Fall detection"
+            value={s.fallDetect}
+            onChange={(x) => s.set({ fallDetect: x })}
+            hint="If a hard fall is followed by stillness, Beacon asks if you are okay and sends an SOS if you do not answer"
+          />
+        </Tile>
       ) : null}
 
-      <SectionTitle>{t('photoHelper')}</SectionTitle>
-      <Card style={{ gap: 8 }}>
-        <Txt size={11.5} color={p.muted}>
+      {/* Photo helper */}
+      <Tile tint="yellow">
+        <Head icon="camera" title={t('photoHelper')} />
+        <Txt size={11.5} style={{ opacity: 0.85 }}>
           {t('photoHelperHint')}
         </Txt>
+        <Txt size={11.5} style={{ opacity: 0.85 }}>
+          {lang === 'hi' ? 'गाइडेड फ़ोटो जाँच इसके बिना भी काम करती है।' : 'Guided photo checks work without this download.'}
+        </Txt>
         {!ortAvailable() ? (
-          <Txt size={12.5} color={p.warn}>
-            This build does not include the photo helper yet. Install the latest build to use it.
+          <Txt size={12.5} weight="600">
+            {lang === 'hi'
+              ? 'स्मार्ट फ़ोटो सहायक चालू करने के लिए ऐप अपडेट करें। गाइडेड फ़ोटो जाँच पहले से काम करती है।'
+              : 'Update the app to enable the smart photo helper. Guided photo checks already work.'}
           </Txt>
         ) : vlm.status === 'downloading' ? (
           <View style={{ gap: 6 }}>
-            <View style={{ height: 6, borderRadius: 3, backgroundColor: p.cardAlt, overflow: 'hidden' }}>
-              <View style={{ width: `${Math.round(vlm.progress * 100)}%`, height: 6, backgroundColor: p.accent }} />
+            <View style={{ height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.6)', overflow: 'hidden' }}>
+              <View style={{ width: `${Math.round(vlm.progress * 100)}%`, height: 6, backgroundColor: p.tint.yellow.ink }} />
             </View>
-            <Txt size={11.5} color={p.muted}>
+            <Txt size={11.5} style={{ opacity: 0.85 }}>
               {Math.round(vlm.progress * 100)}% · {Math.round((vlm.progress * VLM_TOTAL) / 1e6)} / {Math.round(VLM_TOTAL / 1e6)} MB
             </Txt>
+            <Btn size="sm" kind="ghost" label={lang === 'hi' ? 'रद्द करें' : 'Cancel'} onPress={() => cancelVlmDownload()} style={{ alignSelf: 'flex-start' }} />
           </View>
         ) : vlm.status === 'ready' ? (
           <Row>
-            <Icon name="check" size={14} color={p.ok} />
-            <Txt size={13} weight="500" color={p.ok} style={{ flex: 1 }}>
-              {t('ready')}
+            <Icon name="check" size={14} />
+            <Txt size={13} weight="600" style={{ flex: 1 }}>
+              {`${t('ready')} · ${Math.round(VLM_TOTAL / 1e6)} MB`}
             </Txt>
             <Btn size="sm" kind="ghost" label={t('remove')} onPress={() => void vlm.remove()} />
           </Row>
+        ) : vlm.status === 'error' ? (
+          <Row style={{ flexWrap: 'wrap' }}>
+            <Txt size={12} weight="600" style={{ flexBasis: '100%' }}>
+              {lang === 'hi' ? 'डाउनलोड नहीं हो पाया।' : 'The download did not finish.'}
+            </Txt>
+            <Btn size="sm" icon="refresh" label={lang === 'hi' ? 'फिर कोशिश करें' : 'Retry'} onPress={() => void vlm.download()} />
+          </Row>
         ) : (
-          <Btn size="sm" icon="download" label={`${t('download')} · ${Math.round(VLM_TOTAL / 1e6)} MB`} onPress={() => void vlm.download()} />
+          <Btn size="sm" icon="download" label={`${t('download')} ${Math.round(VLM_TOTAL / 1e6)} MB ${lang === 'hi' ? '(वाई-फ़ाई पर)' : 'over Wi-Fi'}`} onPress={() => void vlm.download()} />
         )}
         {vlm.error ? (
-          <Txt size={12} color={p.danger}>
+          <Txt size={12} weight="600">
             {vlm.error}
           </Txt>
         ) : null}
-      </Card>
+      </Tile>
 
-      <SectionTitle>{t('server')}</SectionTitle>
-      <Card style={{ gap: 8 }}>
-        <Txt size={11.5} color={p.muted}>
+      {/* Server & data */}
+      <Tile tint="green">
+        <Head icon="cpu" title={t('server')} />
+        <Txt size={11.5} style={{ opacity: 0.85 }}>
           {t('serverHint')}
         </Txt>
-        <TextInput value={url} onChangeText={setUrl} placeholder="https://beacon.example.org" placeholderTextColor={p.muted} autoCapitalize="none" autoCorrect={false} style={input} />
-        <TextInput value={key} onChangeText={setKey} placeholder="server public key (filled in on connect)" placeholderTextColor={p.muted} autoCapitalize="none" autoCorrect={false} style={input} />
+        <TextInput value={url} onChangeText={setUrl} placeholder="https://beacon.example.org" placeholderTextColor="#3F6B45" autoCapitalize="none" autoCorrect={false} style={input} />
+        <TextInput value={key} onChangeText={setKey} placeholder="server public key (filled in on connect)" placeholderTextColor="#3F6B45" autoCapitalize="none" autoCorrect={false} style={input} />
         <Row>
           <Btn size="sm" label={t('save')} onPress={() => void saveServer()} />
-          {test ? <Txt size={12} color={p.muted}>{test}</Txt> : !cloudConfigured() ? <Txt size={12} color={p.muted}>offline only</Txt> : null}
+          {test ? (
+            <Txt size={12} style={{ opacity: 0.85 }}>
+              {test}
+            </Txt>
+          ) : !cloudConfigured() ? (
+            <Txt size={12} style={{ opacity: 0.85 }}>
+              offline only
+            </Txt>
+          ) : null}
         </Row>
-      </Card>
 
-      <SectionTitle>Status</SectionTitle>
-      <Card style={{ gap: 3 }}>
-        <Txt size={12.5}>Mesh radio: {mesh.radioAvailable ? mesh.status : 'not in this build'} · {mesh.neighbours} nearby</Txt>
-        <Txt size={12.5}>
-          Needle: {needleSupported ? needleStatus().state : 'native module missing'}
-          {needleStatus().error ? ` · ${needleStatus().error}` : ''}
+        <View style={divider} />
+        <Txt size={13} weight="700">
+          Status
         </Txt>
-        <Txt size={12.5}>Photo helper: {vision || 'not checked'}</Txt>
-        <View style={{ marginTop: 6, alignSelf: 'flex-start' }}>
+        <View style={{ gap: 3 }}>
+          <Txt size={12.5}>
+            Mesh radio: {mesh.radioAvailable ? mesh.status : 'not in this build'} · {mesh.neighbours} nearby
+          </Txt>
+          <Txt size={12.5}>
+            Needle: {needleSupported ? needleStatus().state : 'native module missing'}
+            {needleStatus().error ? ` · ${needleStatus().error}` : ''}
+          </Txt>
+          <Txt size={12.5}>Photo helper: {vision || 'not checked'}</Txt>
+        </View>
+        <View style={{ alignSelf: 'flex-start' }}>
           <Btn size="sm" kind="secondary" icon="refresh" label="Re-check" onPress={() => void startNeedle().then(() => visionStatus()).then((x) => setVision(x.available ? 'ready' : (x.reason ?? 'unavailable'))).catch(() => setVision('unavailable'))} />
         </View>
-      </Card>
 
-      <Card style={{ gap: 8 }}>
+        <View style={divider} />
         <Btn
           label={t('switchMode')}
           kind="secondary"
@@ -219,10 +287,10 @@ export function SettingsView() {
             router.replace('/welcome');
           }}
         />
-        <Txt size={11} color={p.muted}>
+        <Txt size={11} style={{ opacity: 0.75 }}>
           {DISCLAIMER[lang === 'hi' ? 1 : 0]}
         </Txt>
-      </Card>
+      </Tile>
     </View>
   );
 }

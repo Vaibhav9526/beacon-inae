@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { spawn } from 'node:child_process';
-import type { Alert } from './types.ts';
+import type { Alert, Persona } from './types.ts';
 import { parseRule } from './parseRule.ts';
 import type { Rule } from './types.ts';
 
@@ -54,8 +54,9 @@ const numbers = (s: string) => s.match(/\d+(?:\.\d+)?/g) ?? [];
  * appears in the original: a model may reword, never invent a reading.
  */
 export function haikuWriter(brain: Brain) {
-  return async (alert: Alert, fallback: string): Promise<string | null> => {
-    const text = (await brain(WRITER, `Severity: ${alert.severity}\nFacts: ${fallback}`)).replace(/\s+/g, ' ').trim();
+  return async (alert: Alert, fallback: string, persona?: Persona): Promise<string | null> => {
+    const system = persona ? `${WRITER} Voice: ${persona.voice} Do not add a name or sign-off.` : WRITER;
+    const text = (await brain(system, `Severity: ${alert.severity}\nFacts: ${fallback}`)).replace(/\s+/g, ' ').trim();
     if (!text || text.length > 280) return null;
     const allowed = new Set(numbers(fallback));
     return numbers(text).every((n) => allowed.has(n)) ? text : null;

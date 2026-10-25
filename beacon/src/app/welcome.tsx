@@ -13,6 +13,9 @@ import { type Mode, radius } from '../theme';
 
 type Step = 'lang' | 'who' | 'name';
 
+/** black-ink text for the tinted role cards, matching the sticker palette */
+const INK_BY_TINT = { yellow: '#1F1700', blue: '#0B1033', lilac: '#1A1033' } as const;
+
 export default function Welcome() {
   const { p } = useTheme();
   const s = useSettings();
@@ -46,7 +49,7 @@ export default function Welcome() {
             <Txt size={20} weight="700" style={{ marginTop: 6 }}>
               {t('appName')}
             </Txt>
-            <Txt size={26} weight="600" style={{ lineHeight: 34, textAlign: 'center' }}>
+            <Txt size={28} weight="700" style={{ lineHeight: 34, textAlign: 'center' }}>
               {step === 'name' ? (mode === 'kid' ? t('kidNameQ') : t('yourName')) : step === 'who' ? t('whoAreYou') : t('chooseLanguage')}
             </Txt>
             <Txt size={13} color={p.muted} style={{ textAlign: 'center' }}>
@@ -70,16 +73,16 @@ export default function Welcome() {
                     s.set({ lang: code });
                     setStep('who');
                   }}>
-                  <Card style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 16 }}>
+                  <Card tint={code === 'en' ? 'pink' : 'green'} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 16 }}>
                     <View>
-                      <Txt size={17} weight="600">
+                      <Txt size={17} weight="700" color="#0A0A0C">
                         {label}
                       </Txt>
-                      <Txt size={12} color={p.muted}>
+                      <Txt size={12} color="#0A0A0C">
                         {hello}
                       </Txt>
                     </View>
-                    <Icon name="next" size={18} color={p.muted} />
+                    <Icon name="next" size={18} color="#0A0A0C" />
                   </Card>
                 </Press>
               </Appear>
@@ -100,14 +103,14 @@ export default function Welcome() {
                   <Card tint={r.tint} style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 14 }}>
                     <PixelAvatar spec={r.avatar} size={46} bg="rgba(255,255,255,0.55)" animated />
                     <View style={{ flex: 1 }}>
-                      <Txt size={16.5} weight="600" color={p.dark ? p.text : '#17171B'}>
+                      <Txt size={16.5} weight="700" color={INK_BY_TINT[r.tint]}>
                         {r.label}
                       </Txt>
-                      <Txt size={12} color={p.dark ? p.muted : '#4A4A55'}>
+                      <Txt size={12} color={INK_BY_TINT[r.tint]}>
                         {r.sub}
                       </Txt>
                     </View>
-                    <Icon name="next" size={18} color={p.dark ? p.muted : '#4A4A55'} />
+                    <Icon name="next" size={18} color={INK_BY_TINT[r.tint]} />
                   </Card>
                 </Press>
               </Appear>
@@ -119,7 +122,7 @@ export default function Welcome() {
         {step === 'name' && (
           <View style={{ gap: 14 }}>
             <Appear index={1}>
-              <TextInput value={name} onChangeText={setName} placeholder={t('yourName')} placeholderTextColor={p.muted} maxLength={24} style={{ backgroundColor: p.card, borderWidth: 1, borderColor: p.border, borderRadius: radius.md, paddingHorizontal: 16, height: 48, fontSize: 16, color: p.text, fontFamily: 'Lexend_400Regular', paddingVertical: 0 }} />
+              <TextInput value={name} onChangeText={setName} placeholder={t('yourName')} placeholderTextColor={p.muted} maxLength={24} style={{ backgroundColor: p.card, borderWidth: 1, borderColor: p.border, borderRadius: radius.md, paddingHorizontal: 16, height: 48, fontSize: 16, color: p.text, fontFamily: 'Poppins_400Regular', paddingVertical: 0 }} />
             </Appear>
             {mode === 'kid' ? (
               <Appear index={2}>

@@ -1,34 +1,63 @@
+import { type TriageChoiceId } from '../kb/triage';
+import { choiceFromDescription } from './triage';
 import { describePhoto, ortAvailable, useVlm } from './vlm';
 
 /**
- * Photo -> short text description ("a bleeding cut on a hand"), done on the phone. The description is then given to
- * Needle / the router to pick the right guide, so the photo itself never leaves the device.
+ * Photo -> short text description ("a bleeding cut on a hand"), done on the phone. The photo itself never leaves the
+ * device. Every function here fails soft: a missing or broken model returns null and the caller falls back to the
+ * guided triage without showing an error.
  */
 export interface VisionStatus {
   available: boolean;
   reason?: string;
 }
 
+export const VISION_TIMEOUT_MS = 15_000;
+
 export async function visionStatus(): Promise<VisionStatus> {
-  if (!ortAvailable()) return { available: false, reason: 'photo helper is not part of this build' };
-  await useVlm.getState().check();
-  const s = useVlm.getState().status;
-  return s === 'ready' ? { available: true } : { available: false, reason: s === 'downloading' ? 'photo helper is downloading' : 'photo helper not downloaded (Settings)' };
+  try {
+    if (!ortAvailable()) return { available: false, reason: 'photo helper is not part of this build' };
+    await useVlm.getState().check();
+    const s = useVlm.getState().status;
+    return s === 'ready' ? { available: true } : { available: false, reason: s === 'downloading' ? 'photo helper is downloading' : 'photo helper not downloaded (Settings)' };
+  } catch {
+    return { available: false, reason: 'photo helper could not be checked' };
+  }
 }
 
-export async function describeImage(uri: string): Promise<string | null> {
-  if (!(await visionStatus()).available) return null;
-  return describePhoto(uri);
+/** Resolves to null after `ms`, so a slow model never blocks the person. */
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), ms);
+    p.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(null);
+      },
+    );
+  });
 }
 
-/** What the picker offers when the vision model is not available: each maps to words the router understands. */
-export const PHOTO_CHOICES: { emoji: string; en: string; hi: string; query: string }[] = [
-  { emoji: '🩸', en: 'Bleeding cut', hi: 'खून बहता कट', query: 'bleeding deep cut' },
-  { emoji: '🔥', en: 'Burn', hi: 'जलना', query: 'burn blister hot' },
-  { emoji: '🦴', en: 'Swollen or bent limb', hi: 'सूजा या मुड़ा अंग', query: 'broken bone swollen arm leg' },
-  { emoji: '🐍', en: 'Snake bite', hi: 'साँप का काटना', query: 'snake bite' },
-  { emoji: '🐝', en: 'Sting or rash', hi: 'डंक या दाने', query: 'allergy sting swelling rash' },
-  { emoji: '🧍', en: 'Person on the ground', hi: 'ज़मीन पर पड़ा व्यक्ति', query: 'unconscious not breathing collapsed' },
-  { emoji: '💨', en: 'Smoke or fire', hi: 'धुआँ या आग', query: 'fire smoke' },
-  { emoji: '🌊', en: 'Flood water', hi: 'बाढ़ का पानी', query: 'flood water rising' },
-];
+export async function describeImage(uri: string, timeoutMs = VISION_TIMEOUT_MS): Promise<string | null> {
+  const status = await visionStatus();
+  if (!status.available) return null;
+  const text = await withTimeout(describePhoto(uri).catch(() => null), timeoutMs);
+  return text?.trim() ? text.trim() : null;
+}
+
+export interface PhotoAnalysis {
+  description: string;
+  /** Likely choice from the description. The person confirms it; it is never used as a diagnosis. */
+  choice: TriageChoiceId | null;
+}
+
+/** Vision model if it is ready and answers in time; otherwise null and the caller uses guided triage. */
+export async function analysePhoto(uri: string): Promise<PhotoAnalysis | null> {
+  const description = await describeImage(uri).catch(() => null);
+  if (!description) return null;
+  return { description, choice: choiceFromDescription(description) };
+}

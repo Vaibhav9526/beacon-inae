@@ -27,7 +27,7 @@ const HOLD_MS = 1400;
 const DIDI_HOLD_MS = 4000;
 const PILL = 40;
 /** Screens that already have their own mic or chat input: the dock stays out of their way. */
-const HIDE_ON = ['/aid', '/didi', '/report', '/hub', '/welcome'];
+const HIDE_ON = ['/aid', '/didi', '/community', '/report', '/hub', '/welcome'];
 
 interface Toast {
   text: string;

@@ -14,6 +14,11 @@ const store: KeyStore = {
 
 let cached: Promise<Identity> | null = null;
 
+/** Forget the in-memory identity (after a wipe) so the next call creates a fresh one. */
+export const resetIdentityCache = () => {
+  cached = null;
+};
+
 export function getIdentity(): Promise<Identity> {
   cached ??= loadOrCreateIdentity(store);
   return cached;

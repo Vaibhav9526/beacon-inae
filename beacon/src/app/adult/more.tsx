@@ -1,66 +1,140 @@
 import { router } from 'expo-router';
 import React from 'react';
-import { View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated';
+import { Bell, Cross, Drop, Flower, Ribbon, Shield, Sun, Bolt, Wave } from '../../components/Deco';
 import { Icon, type IconName } from '../../components/Icon';
-import { PixelAvatar, cast } from '../../components/PixelAvatar';
 import { Screen } from '../../components/Screen';
-import { Appear, Card, IconTile, Press, Row, type TintName, Txt, useTheme } from '../../components/ui';
+import { Appear, type TintName, Txt, useTheme } from '../../components/ui';
 import { useLang, useT } from '../../i18n';
+import * as haptics from '../../services/haptics';
+import { useSettings } from '../../state/settings';
+
+const EASE = Easing.out(Easing.cubic);
+
+/** A vivid rounded tile. Press scales to 0.985 over 200ms. The sticker sits bottom-right with a light tilt. */
+function BentoTile({
+  label,
+  icon,
+  tint,
+  deco,
+  tilt = -8,
+  minH = 124,
+  onPress,
+  flex,
+}: {
+  label: string;
+  icon: IconName;
+  tint: TintName;
+  deco: React.ReactNode;
+  tilt?: number;
+  minH?: number;
+  onPress: () => void;
+  flex?: number;
+}) {
+  const { p } = useTheme();
+  const reduced = useReducedMotion();
+  const t = p.tint[tint];
+  const s = useSharedValue(1);
+  const a = useAnimatedStyle(() => ({ transform: [{ scale: s.value }] }));
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      style={{ flex: flex ?? undefined }}
+      onPressIn={() => {
+        haptics.tap();
+        if (!reduced) s.value = withTiming(0.985, { duration: 200, easing: EASE });
+      }}
+      onPressOut={() => {
+        if (!reduced) s.value = withTiming(1, { duration: 200, easing: EASE });
+      }}
+      onPress={onPress}>
+      <Animated.View style={[{ flex: 1, minHeight: minH, borderRadius: 28, backgroundColor: t.bg, padding: 16, overflow: 'hidden', justifyContent: 'space-between' }, a]}>
+        <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: 'rgba(255,255,255,0.6)', alignItems: 'center', justifyContent: 'center' }}>
+          <Icon name={icon} size={20} color={t.ink} />
+        </View>
+        <Txt size={22} weight="700" color={t.ink} style={{ paddingRight: 44 }}>
+          {label}
+        </Txt>
+        <View pointerEvents="none" style={{ position: 'absolute', right: -10, bottom: -10, transform: [{ rotate: `${tilt}deg` }] }}>
+          {deco}
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
 
 export default function More() {
   const { p } = useTheme();
   const t = useT();
   const lang = useLang();
-  const items: { icon: IconName; tint: TintName; label: string; sub?: string; go: string }[] = [
-    { icon: 'bot', tint: 'lilac', label: lang === 'hi' ? 'डेस्कटॉप हब' : 'Desktop hub', sub: lang === 'hi' ? 'आपके कंप्यूटर पर चल रहे एजेंट' : 'Agents running on your computer', go: '/hub' },
-    { icon: 'heartPulse', tint: 'pink', label: t('medicalId'), go: '/medical' },
-    { icon: 'family', tint: 'blue', label: t('tabKids'), go: '/family' },
-    { icon: 'doc', tint: 'yellow', label: t('resourceBoard'), go: '/adult/community' },
-    { icon: 'learn', tint: 'green', label: t('goBag'), go: '/gobag' },
-    { icon: 'trophy', tint: 'peach', label: t('drills'), go: '/drills' },
-    { icon: 'camera', tint: 'lilac', label: t('postReport'), go: '/report/new' },
-    { icon: 'settings', tint: 'blue', label: t('settings'), go: '/settings' },
-  ];
+  const name = useSettings((s) => s.nickname).trim();
+  const hi = lang === 'hi';
+  const greet = hi ? `नमस्ते${name ? ` ${name}` : ''}, आपको क्या चाहिए?` : `Hi${name ? ` ${name}` : ' there'}, what do you need?`;
+
+  const go = (href: string) => () => router.push(href as never);
+
   return (
     <Screen back={false} title={t('tabMore')}>
       <Appear>
-        <Press onPress={() => router.push('/adult/aid' as never)}>
-          <Card tint="peach" style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12 }}>
-            <PixelAvatar spec={cast('veer')} size={44} bg="rgba(255,255,255,0.6)" animated />
-            <View style={{ flex: 1 }}>
-              <Txt size={14.5} weight="600" color={p.dark ? p.text : '#17171B'}>
-                {t('veerName')}
-              </Txt>
-              <Txt size={12} color={p.dark ? p.muted : '#5A3A20'}>
-                {t('veerRole')}
-              </Txt>
-            </View>
-            <Icon name="next" size={16} color={p.dark ? p.muted : '#5A3A20'} />
-          </Card>
-        </Press>
+        <View style={{ borderRadius: 28, backgroundColor: p.tint.peach.bg, padding: 20, minHeight: 150, overflow: 'hidden', justifyContent: 'flex-end' }}>
+          <View pointerEvents="none" style={{ position: 'absolute', right: -16, top: -18, transform: [{ rotate: '12deg' }] }}>
+            <Sun size={110} />
+          </View>
+          <Txt size={27} weight="700" color={p.tint.peach.ink} style={{ maxWidth: '72%', lineHeight: 32 }}>
+            {greet}
+          </Txt>
+          <Txt size={13} color={p.tint.peach.ink} style={{ opacity: 0.8, marginTop: 6 }}>
+            {hi ? 'आपके सारे ज़रूरी औज़ार एक टैप दूर।' : 'Your essential tools, one tap away.'}
+          </Txt>
+        </View>
       </Appear>
-      {items.map((i, k) => (
-        <Appear key={i.go + i.label} index={k + 1}>
-          <Press accessibilityRole="button" onPress={() => router.push(i.go as never)}>
-            <Card style={{ padding: 11 }}>
-              <Row style={{ gap: 12 }}>
-                <IconTile name={i.icon} tint={i.tint} size={34} />
-                <View style={{ flex: 1 }}>
-                  <Txt size={14.5} weight="500">
-                    {i.label}
-                  </Txt>
-                  {i.sub ? (
-                    <Txt size={11.5} color={p.muted}>
-                      {i.sub}
-                    </Txt>
-                  ) : null}
-                </View>
-                <Icon name="next" size={16} color={p.muted} />
-              </Row>
-            </Card>
-          </Press>
-        </Appear>
-      ))}
+
+      {/* the three phases: before, during, after */}
+      <Appear index={1} style={{ flexDirection: 'row', gap: 12 }}>
+        <View style={{ flex: 1 }}>
+          <BentoTile label={hi ? 'तैयारी' : 'Prepare'} icon="shield" tint="lilac" deco={<Shield size={86} />} tilt={-8} minH={232} onPress={go('/prepare')} />
+        </View>
+        <View style={{ flex: 1, gap: 12 }}>
+          <BentoTile label={hi ? 'सुधार' : 'Recover'} icon="heart" tint="green" deco={<Flower size={64} />} tilt={9} onPress={go('/recover')} />
+          <BentoTile label={hi ? 'संकेत औज़ार' : 'Signal tools'} icon="siren" tint="yellow" deco={<Bolt size={62} />} tilt={-7} onPress={go('/tools')} />
+        </View>
+      </Appear>
+
+      {/* row: two small tiles on the left, one tall tile on the right */}
+      <Appear index={2} style={{ flexDirection: 'row', gap: 12 }}>
+        <View style={{ flex: 1, gap: 12 }}>
+          <BentoTile label={t('goBag')} icon="learn" tint="green" deco={<Shield size={70} />} tilt={8} onPress={go('/gobag')} />
+          <BentoTile label={t('drills')} icon="trophy" tint="yellow" deco={<Bell size={66} />} tilt={-6} onPress={go('/drills')} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <BentoTile label={t('medicalId')} icon="heartPulse" tint="pink" deco={<Cross size={92} />} tilt={-10} minH={260} onPress={go('/medical')} />
+        </View>
+      </Appear>
+
+      <Appear index={2}>
+        <BentoTile label={t('tabKids')} icon="family" tint="blue" deco={<Flower size={80} />} tilt={7} minH={104} onPress={go('/family')} />
+      </Appear>
+
+      <Appear index={3} style={{ flexDirection: 'row', gap: 12 }}>
+        <BentoTile flex={1} label={t('tabMap')} icon="map" tint="lilac" deco={<Wave size={62} />} tilt={-7} onPress={go('/adult/map')} />
+        <BentoTile flex={1} label={hi ? 'डेस्कटॉप हब' : 'Desktop hub'} icon="bot" tint="peach" deco={<Bolt size={62} />} tilt={9} onPress={go('/hub')} />
+      </Appear>
+
+      <Appear index={4} style={{ flexDirection: 'row', gap: 12 }}>
+        <BentoTile flex={1} label={hi ? 'मेश की सेहत' : 'Mesh health'} icon="radio" tint="blue" deco={<Wave size={62} />} tilt={-7} onPress={go('/mesh')} />
+        <BentoTile flex={1} label={hi ? 'निजता' : 'Privacy'} icon="lock" tint="pink" deco={<Shield size={60} />} tilt={8} onPress={go('/privacy')} />
+      </Appear>
+
+      <Appear index={4} style={{ flexDirection: 'row', gap: 12 }}>
+        <BentoTile flex={1} label={t('settings')} icon="settings" tint="blue" deco={<Ribbon size={62} />} tilt={-9} onPress={go('/settings')} />
+        <BentoTile flex={1} label={t('language')} icon="language" tint="green" deco={<Drop size={62} />} tilt={8} onPress={go('/settings')} />
+      </Appear>
+
+      <Appear index={5}>
+        <BentoTile label={hi ? 'मदद और जानकारी' : 'Help and about'} icon="info" tint="lilac" deco={<Sun size={78} />} tilt={10} minH={104} onPress={go('/adult/aid')} />
+      </Appear>
     </Screen>
   );
 }

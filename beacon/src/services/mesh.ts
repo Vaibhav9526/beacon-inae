@@ -22,6 +22,9 @@ import { getFix, lastKnownFix } from './location';
 let node: MeshNode | null = null;
 let transport: BleTransport | null = null;
 let startPromise: Promise<void> | null = null;
+// kept so stop() (and a panic wipe) can end the periodic work
+let snapshotTimer: ReturnType<typeof setInterval> | null = null;
+let neighbourTimer: ReturnType<typeof setInterval> | null = null;
 let sosStop: (() => void) | null = null;
 
 const SNAPSHOT_KEY = 'beacon.mesh.snapshot.v1';
@@ -112,7 +115,8 @@ export const useMesh = create<MeshState>((set, get) => ({
         /* start fresh */
       }
       const save = () => AsyncStorage.setItem(SNAPSHOT_KEY, n.snapshot()).catch(() => {});
-      setInterval(save, 20_000);
+      if (snapshotTimer) clearInterval(snapshotTimer);
+      snapshotTimer = setInterval(save, 20_000);
       AppState.addEventListener('change', (st) => st !== 'active' && save());
 
       n.on('public', (m) => {
@@ -137,12 +141,16 @@ export const useMesh = create<MeshState>((set, get) => ({
         startPromise = null;
       }
       // keep neighbour count fresh (links change without a peer event)
-      setInterval(() => node && set({ neighbours: node.neighbours }), 5000);
+      if (neighbourTimer) clearInterval(neighbourTimer);
+      neighbourTimer = setInterval(() => node && set({ neighbours: node.neighbours }), 5000);
     })();
     return startPromise;
   },
 
   async stop() {
+    if (snapshotTimer) clearInterval(snapshotTimer);
+    if (neighbourTimer) clearInterval(neighbourTimer);
+    snapshotTimer = neighbourTimer = null;
     await node?.stop();
     node = null;
     startPromise = null;

@@ -39,6 +39,42 @@ async function present(): Promise<boolean> {
   return true;
 }
 
+// ---- cancellation ----
+// The running DownloadResumable, the temp file it writes and a flag the download loop checks between files.
+// Cancellation keeps every finished file (they are skipped on the next run) and drops the partial one.
+
+let activeJobs: FS.DownloadResumable[] = [];
+let cancelRequested = false;
+let inflightTmp: string | null = null;
+
+/** Stop the running model download. Status settles back to 'missing' (or 'ready' if all files were already done). */
+export function cancelVlmDownload() {
+  if (useVlm.getState().status !== 'downloading') return;
+  cancelRequested = true;
+  const jobs = activeJobs;
+  activeJobs = [];
+  for (const j of jobs) void j.cancelAsync().catch(() => {});
+  // cancelled between files: nothing in flight would reject on its own, so settle the state here
+  if (jobs.length === 0 && !inflightTmp) void reflectCancel();
+}
+
+async function reflectCancel(): Promise<void> {
+  const tmp = inflightTmp;
+  inflightTmp = null;
+  activeJobs = [];
+  if (tmp) void FS.deleteAsync(tmp, { idempotent: true }).catch(() => {});
+  if (await present()) {
+    useVlm.setState({ status: 'ready', progress: 1, error: null });
+    return;
+  }
+  let done = 0;
+  for (const f of VLM_FILES) {
+    const i = await FS.getInfoAsync(DIR + f.name);
+    if (i.exists && (i as { size?: number }).size === f.bytes) done += f.bytes;
+  }
+  useVlm.setState({ status: 'missing', progress: done / VLM_TOTAL, error: null });
+}
+
 export const useVlm = create<VlmState>((set, get) => ({
   status: 'unknown',
   progress: 0,
@@ -55,6 +91,7 @@ export const useVlm = create<VlmState>((set, get) => ({
       await FS.makeDirectoryAsync(DIR, { intermediates: true }).catch(() => {});
       let done = 0;
       for (const f of VLM_FILES) {
+        if (cancelRequested) break;
         const dest = DIR + f.name;
         const info = await FS.getInfoAsync(dest);
         if (info.exists && (info as { size?: number }).size === f.bytes) {
@@ -62,15 +99,34 @@ export const useVlm = create<VlmState>((set, get) => ({
           set({ progress: done / VLM_TOTAL });
           continue;
         }
+        if (cancelRequested) break;
         const tmp = dest + '.part';
         const job = FS.createDownloadResumable(f.url, tmp, {}, (p) => set({ progress: (done + p.totalBytesWritten) / VLM_TOTAL }));
-        const res = await job.downloadAsync();
-        if (!res || res.status >= 400) throw new Error(`download failed (${res?.status ?? 'no response'}) for ${f.name}`);
+        activeJobs.push(job);
+        inflightTmp = tmp;
+        try {
+          const res = await job.downloadAsync();
+          if (!res || res.status >= 400) throw new Error(`download failed (${res?.status ?? 'no response'}) for ${f.name}`);
+        } finally {
+          inflightTmp = null;
+          activeJobs = activeJobs.filter((j) => j !== job);
+        }
+        if (cancelRequested) break;
         await FS.moveAsync({ from: tmp, to: dest });
         done += f.bytes;
       }
+      if (cancelRequested) {
+        cancelRequested = false;
+        await reflectCancel();
+        return;
+      }
       set({ status: (await present()) ? 'ready' : 'error', progress: 1, error: (await present()) ? null : 'downloaded files look incomplete' });
     } catch (e) {
+      if (cancelRequested) {
+        cancelRequested = false;
+        await reflectCancel();
+        return;
+      }
       set({ status: 'error', error: String((e as Error).message ?? e) });
     }
   },

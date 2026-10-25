@@ -62,7 +62,7 @@ export default function ParentHome() {
     setName('');
   };
 
-  const input = { backgroundColor: p.cardAlt, borderRadius: radius.md, paddingHorizontal: 14, height: 42, color: p.text, fontSize: 14, fontFamily: 'Lexend_400Regular', paddingVertical: 0 } as const;
+  const input = { backgroundColor: p.cardAlt, borderRadius: radius.md, paddingHorizontal: 14, height: 42, color: p.text, fontSize: 14, fontFamily: 'Poppins_400Regular', paddingVertical: 0 } as const;
 
   return (
     <Screen back={false} title={t('parentTitle')}>
@@ -90,7 +90,7 @@ export default function ParentHome() {
         const dist = me && m ? Math.round(distanceKm(me, m) * 1000) : null;
         return (
           <Appear key={c.code} index={idx}>
-            <Card style={{ gap: 10, borderColor: sos ? p.danger : p.border }}>
+            <Card tint={sos ? 'pink' : 'blue'} style={{ gap: 10, padding: 16 }}>
               {sos ? (
                 <Row style={{ backgroundColor: p.danger, borderRadius: radius.md, padding: 9, gap: 8 }}>
                   <Icon name="siren" size={15} color="#fff" />
@@ -137,7 +137,7 @@ export default function ParentHome() {
       })}
 
       <Card style={{ gap: 8 }}>
-        <Txt size={14} weight="600">
+        <Txt size={16} weight="600">
           {t('pairChild')}
         </Txt>
         <TextInput value={name} onChangeText={setName} placeholder={t('yourName')} placeholderTextColor={p.muted} style={input} />
