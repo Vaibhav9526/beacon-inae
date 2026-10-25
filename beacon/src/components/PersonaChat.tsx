@@ -10,12 +10,10 @@ import { useLocal, useT } from '../i18n';
 import { speak, stopSpeaking } from '../services/speech';
 import { useSettings } from '../state/settings';
 import { radius } from '../theme';
-import { Flower } from './Deco';
 import { Icon } from './Icon';
 import { MicButton } from './MicButton';
-import { PixelAvatar, cast } from './PixelAvatar';
 import { useKeyboardOpen } from './TabBar';
-import { Btn, Card, Chip, Press, Row, Txt, type TintName, useTheme } from './ui';
+import { Btn, Press, Row, Txt, useTheme } from './ui';
 
 /** Bottom clearance that Screen reserves on tab routes (bar 64 + 16 margin + 24 breathing room, plus the safe area). */
 const TAB_CLEARANCE = 56;
@@ -29,21 +27,20 @@ interface Msg {
 
 let seq = 1;
 
-export function PersonaChat({ persona, onPhoto, incoming, bottomInset = 0 }: { persona: PersonaKey; onPhoto?: () => void; incoming?: { n: number; text: string }; bottomInset?: number }) {
+export function PersonaChat({ persona, onPhoto, incoming, bottomInset = 0, topPad = 16 }: { persona: PersonaKey; onPhoto?: () => void; incoming?: { n: number; text: string }; bottomInset?: number; topPad?: number }) {
   const { p } = useTheme();
   const t = useT();
   const L = useLocal();
   const lang = useSettings((s) => s.lang);
   const readAloud = useSettings((s) => s.readAloud);
   const def = PERSONAS[persona];
-  // each persona has its own vivid tint: the header card and the persona's replies share it
-  const ptint: TintName = persona === 'didi' ? 'yellow' : persona === 'asha' ? 'green' : 'peach';
-  const pt = p.tint[ptint];
   const [msgs, setMsgs] = useState<Msg[]>([{ id: 0, from: 'bot', text: L(def.greeting) }]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [needleReady, setNeedleReady] = useState(false);
   const scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
+  // true once the person has sent something: only then does the list follow new content to the end
+  const hasSent = useRef(false);
   const insets = useSafeAreaInsets();
   const kbOpen = useKeyboardOpen();
 
@@ -52,6 +49,7 @@ export function PersonaChat({ persona, onPhoto, incoming, bottomInset = 0 }: { p
   }, []);
   useEffect(() => () => stopSpeaking(), []);
   useEffect(() => {
+    hasSent.current = false;
     setMsgs([{ id: 0, from: 'bot', text: L(def.greeting) }]);
   }, [persona, lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -60,6 +58,7 @@ export function PersonaChat({ persona, onPhoto, incoming, bottomInset = 0 }: { p
     if (!q || busy) return;
     setInput('');
     setBusy(true);
+    hasSent.current = true;
     setMsgs((m) => [...m, { id: seq++, from: 'me', text: q }]);
     let r: Reply;
     try {
@@ -80,11 +79,19 @@ export function PersonaChat({ persona, onPhoto, incoming, bottomInset = 0 }: { p
     if (incoming?.text) void ask(incoming.text);
   }, [incoming?.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const pill = (label: string, onPress: () => void, key?: React.Key) => (
+    <Press key={key} onPress={onPress} style={{ paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, borderWidth: 1, borderColor: p.border, backgroundColor: p.card }}>
+      <Txt size={13} color={p.text}>
+        {label}
+      </Txt>
+    </Press>
+  );
+
   const renderBlock = (b: Block, i: number) => {
     switch (b.type) {
       case 'text':
         return (
-          <Txt key={i} size={14.5} color={pt.ink}>
+          <Txt key={i} size={14.5} color={p.text}>
             {b.text}
           </Txt>
         );
@@ -92,9 +99,9 @@ export function PersonaChat({ persona, onPhoto, incoming, bottomInset = 0 }: { p
         return (
           <Row key={i} style={{ gap: 6, alignItems: 'flex-start' }}>
             <View style={{ marginTop: 3 }}>
-              <Icon name="alert" size={13} color={pt.ink} />
+              <Icon name="alert" size={13} color={p.warn} />
             </View>
-            <Txt size={13} weight="600" color={pt.ink} style={{ flex: 1 }}>
+            <Txt size={13} weight="600" color={p.text} style={{ flex: 1 }}>
               {b.text}
             </Txt>
           </Row>
@@ -102,15 +109,15 @@ export function PersonaChat({ persona, onPhoto, incoming, bottomInset = 0 }: { p
       case 'steps':
         return (
           <View key={i} style={{ gap: 6 }}>
-            <Txt size={14} weight="700" color={pt.ink}>
+            <Txt size={14} weight="700" color={p.text}>
               {b.title}
             </Txt>
             {b.steps.map((s, k) => (
               <Row key={k} style={{ alignItems: 'flex-start', gap: 8 }}>
-                <Txt size={13} weight="700" color={pt.ink} style={{ width: 16, opacity: 0.7 }}>
+                <Txt size={13} weight="700" color={p.muted} style={{ width: 16 }}>
                   {k + 1}
                 </Txt>
-                <Txt size={13.5} color={pt.ink} style={{ flex: 1 }}>
+                <Txt size={13.5} color={p.text} style={{ flex: 1 }}>
                   {s}
                 </Txt>
               </Row>
@@ -125,9 +132,7 @@ export function PersonaChat({ persona, onPhoto, incoming, bottomInset = 0 }: { p
       case 'chips':
         return (
           <Row key={i} style={{ flexWrap: 'wrap', gap: 6 }}>
-            {b.items.map((c, k) => (
-              <Chip key={k} label={c.label} onPress={() => void ask(c.query)} />
-            ))}
+            {b.items.map((c, k) => pill(c.label, () => void ask(c.query), k))}
           </Row>
         );
     }
@@ -137,66 +142,57 @@ export function PersonaChat({ persona, onPhoto, incoming, bottomInset = 0 }: { p
     // This chat always sits on a tab route, where Screen reserves the bar clearance below it. While the keyboard is
     // open the bar is hidden, so a negative margin pulls the composer down into that reserved space.
     <KeyboardAvoidingView style={{ flex: 1, marginBottom: kbOpen ? -(TAB_CLEARANCE + insets.bottom) : 0 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={80}>
-      <ScrollView ref={scroll} style={{ flex: 1 }} contentContainerStyle={{ padding: 16, gap: 12 }} onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: true })} showsVerticalScrollIndicator={false}>
-        <Card tint={ptint} style={{ overflow: 'hidden', minHeight: 104, justifyContent: 'center', padding: 16 }}>
-          <Row style={{ gap: 12, paddingRight: 84 }}>
-            <PixelAvatar spec={cast(persona)} size={48} bg="rgba(255,255,255,0.6)" animated />
-            <View style={{ flex: 1 }}>
-              <Txt size={17} weight="700" color={pt.ink}>
-                {L(def.name)}
-              </Txt>
-              <Txt size={12} color={pt.ink} style={{ opacity: 0.8 }}>
-                {L(def.role)} · {needleReady ? t('aiOnDevice') : t('aiKeywords')}
-              </Txt>
-            </View>
-          </Row>
-          <View pointerEvents="none" style={{ position: 'absolute', right: -12, top: -14, transform: [{ rotate: '12deg' }] }}>
-            <Flower size={84} />
-          </View>
-        </Card>
+      <ScrollView
+        ref={scroll}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 16, paddingTop: topPad, gap: 10 }}
+        // never on first render, and never while the person is still reading the top: only follow after they have sent
+        onContentSizeChange={() => {
+          if (hasSent.current) scroll.current?.scrollToEnd({ animated: true });
+        }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* the persona's one-line role and status, muted: the picker pills above (or this line alone) say who is talking */}
+        <Txt size={12} color={p.muted}>
+          {L(def.role)} · {needleReady ? t('aiOnDevice') : t('aiKeywords')}
+        </Txt>
         {msgs.map((m) => (
           <Animated.View
             entering={FadeInDown.duration(220)}
             key={m.id}
-            style={{ alignSelf: m.from === 'me' ? 'flex-end' : 'flex-start', maxWidth: '90%', backgroundColor: m.from === 'me' ? p.cardAlt : pt.bg, paddingVertical: 11, paddingHorizontal: 14, borderRadius: 24, borderBottomRightRadius: m.from === 'me' ? 6 : 24, borderBottomLeftRadius: m.from === 'me' ? 24 : 6, gap: 8 }}>
+            style={{ alignSelf: m.from === 'me' ? 'flex-end' : 'flex-start', maxWidth: '78%', backgroundColor: m.from === 'me' ? p.brand : p.card, borderWidth: m.from === 'me' ? 0 : 1, borderColor: p.border, paddingVertical: 9, paddingHorizontal: 13, borderRadius: 18, gap: 8 }}>
             {m.text ? (
-              <Txt size={14.5} color={m.from === 'me' ? p.text : pt.ink}>
+              <Txt size={14.5} color={m.from === 'me' ? p.onBrand : p.text}>
                 {m.text}
               </Txt>
             ) : null}
             {m.reply?.blocks.map(renderBlock)}
             {m.reply && !readAloud ? (
               <Press accessibilityLabel={t('readAloud')} onPress={() => void speak(m.reply!.speech, lang, persona)} style={{ alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-                <Icon name="speaker" size={13} color={pt.ink} />
-                <Txt size={11.5} weight="600" color={pt.ink}>
+                <Icon name="speaker" size={13} color={p.muted} />
+                <Txt size={11.5} weight="600" color={p.muted}>
                   {t('readAloud')}
                 </Txt>
               </Press>
             ) : null}
           </Animated.View>
         ))}
-        {msgs.length === 1 ? (
-          <Row style={{ flexWrap: 'wrap', gap: 6 }}>
-            {def.starters.map((s, i) => (
-              <Chip key={i} label={L(s)} onPress={() => void ask(L(s))} />
-            ))}
-          </Row>
-        ) : null}
+        {msgs.length === 1 ? <Row style={{ flexWrap: 'wrap', gap: 6 }}>{def.starters.map((s, i) => pill(L(s), () => void ask(L(s)), i))}</Row> : null}
         {busy ? (
           <Txt size={13} color={p.muted}>
             …
           </Txt>
         ) : null}
       </ScrollView>
-      <Row style={{ paddingHorizontal: 12, paddingTop: 10, paddingBottom: 10 + bottomInset, gap: 8, backgroundColor: p.bg }}>
+      <Row style={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: 10 + bottomInset, gap: 8 }}>
         {onPhoto ? (
-          <Press accessibilityLabel={t('takePhoto')} onPress={onPhoto} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: p.cardAlt, alignItems: 'center', justifyContent: 'center' }}>
-            <Icon name="camera" size={17} />
+          <Press accessibilityLabel={t('takePhoto')} onPress={onPhoto} style={{ width: 42, height: 42, borderRadius: 21, borderWidth: 1, borderColor: p.border, backgroundColor: p.card, alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="camera" size={17} color={p.text} />
           </Press>
         ) : null}
         <MicButton onText={(x) => void ask(x)} />
-        <TextInput value={input} onChangeText={setInput} onSubmitEditing={() => void ask(input)} placeholder={t('aidPlaceholder')} placeholderTextColor={p.muted} returnKeyType="send" style={{ flex: 1, height: 44, backgroundColor: p.card, borderRadius: radius.pill, paddingHorizontal: 18, color: p.text, fontSize: 13.5, fontFamily: 'Poppins_400Regular', paddingVertical: 0 }} />
-        <Press accessibilityLabel={t('send')} onPress={() => void ask(input)} disabled={busy || !input.trim()} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: p.accent, alignItems: 'center', justifyContent: 'center', opacity: busy || !input.trim() ? 0.4 : 1 }}>
+        <TextInput value={input} onChangeText={setInput} onSubmitEditing={() => void ask(input)} placeholder={t('aidPlaceholder')} placeholderTextColor={p.muted} returnKeyType="send" style={{ flex: 1, height: 42, backgroundColor: p.card, borderWidth: 1, borderColor: p.border, borderRadius: 21, paddingHorizontal: 16, color: p.text, fontSize: 14, fontFamily: 'Poppins_400Regular', paddingVertical: 0 }} />
+        <Press accessibilityLabel={t('send')} onPress={() => void ask(input)} disabled={busy || !input.trim()} style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: p.accent, alignItems: 'center', justifyContent: 'center', opacity: busy || !input.trim() ? 0.4 : 1 }}>
           <Icon name="send" size={16} color={p.onAccent} />
         </Press>
       </Row>

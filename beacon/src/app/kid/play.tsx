@@ -1,9 +1,9 @@
 import { router } from 'expo-router';
 import React from 'react';
-import { ScrollView, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View } from 'react-native';
 import { Flower } from '../../components/Deco';
 import { Icon, type IconName } from '../../components/Icon';
+import { Screen } from '../../components/Screen';
 import { Appear, Card, IconTile, Press, Row, type TintName, Txt, useTheme } from '../../components/ui';
 import { useLocal, useT } from '../../i18n';
 import { useSettings } from '../../state/settings';
@@ -19,10 +19,9 @@ export default function Play() {
   const t = useT();
   const L = useLocal();
   const { p } = useTheme();
-  const insets = useSafeAreaInsets();
   const stars = useSettings((s) => s.stars);
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: p.bg }} contentContainerStyle={{ paddingTop: insets.top + 12, paddingHorizontal: 16, paddingBottom: 120, gap: 12 }} showsVerticalScrollIndicator={false}>
+    <Screen back={false}>
       <Appear>
         <Card tint="pink" style={{ overflow: 'hidden', minHeight: 140, justifyContent: 'flex-end', padding: 20 }}>
           <View style={{ gap: 4, paddingRight: 92 }}>
@@ -61,6 +60,6 @@ export default function Play() {
           </Press>
         </Appear>
       ))}
-    </ScrollView>
+    </Screen>
   );
 }

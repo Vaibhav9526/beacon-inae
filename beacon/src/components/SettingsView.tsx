@@ -9,13 +9,14 @@ import { type VoiceRole, useEleven } from '../services/elevenlabs';
 import { speak } from '../services/speech';
 import { useMesh } from '../services/mesh';
 import { visionStatus } from '../services/vision';
-import { VLM_TOTAL, cancelVlmDownload, ortAvailable, useVlm } from '../services/vlm';
 import { voiceStatus, voiceSupported } from '../services/voice';
 import { useSettings } from '../state/settings';
 import { radius } from '../theme';
 import { Icon, type IconName } from './Icon';
+import { GoogleKeyCard } from './GoogleKeyCard';
+import { PhotoHelperCard } from './PhotoHelperCard';
 import { Switch } from './Switch';
-import { Btn, Card, Chip, Row, Txt, type TintName, useTheme } from './ui';
+import { Btn, Card, Chip, Row, Txt, type TintName } from './ui';
 
 /** One label + switch row. Text takes the ink of the tinted tile it sits in. */
 function Toggle({ label, value, onChange, hint }: { label: string; value: boolean; onChange: (v: boolean) => void; hint?: string }) {
@@ -60,13 +61,11 @@ function Tile({ tint, children }: { tint: TintName; children: React.ReactNode })
 }
 
 export function SettingsView() {
-  const { p } = useTheme();
   const t = useT();
   const lang = useLang();
   const s = useSettings();
   const mesh = useMesh();
   const eleven = useEleven();
-  const vlm = useVlm();
   const [url, setUrl] = useState(s.serverUrl);
   const [key, setKey] = useState(s.serverKey);
   const [xi, setXi] = useState('');
@@ -76,7 +75,6 @@ export function SettingsView() {
   const v = voiceSupported() ? voiceStatus() : null;
 
   React.useEffect(() => {
-    void vlm.check();
     void eleven.load();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -190,54 +188,14 @@ export function SettingsView() {
       ) : null}
 
       {/* Photo helper */}
-      <Tile tint="yellow">
-        <Head icon="camera" title={t('photoHelper')} />
-        <Txt size={11.5} style={{ opacity: 0.85 }}>
-          {t('photoHelperHint')}
-        </Txt>
-        <Txt size={11.5} style={{ opacity: 0.85 }}>
-          {lang === 'hi' ? 'गाइडेड फ़ोटो जाँच इसके बिना भी काम करती है।' : 'Guided photo checks work without this download.'}
-        </Txt>
-        {!ortAvailable() ? (
-          <Txt size={12.5} weight="600">
-            {lang === 'hi'
-              ? 'स्मार्ट फ़ोटो सहायक चालू करने के लिए ऐप अपडेट करें। गाइडेड फ़ोटो जाँच पहले से काम करती है।'
-              : 'Update the app to enable the smart photo helper. Guided photo checks already work.'}
-          </Txt>
-        ) : vlm.status === 'downloading' ? (
-          <View style={{ gap: 6 }}>
-            <View style={{ height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.6)', overflow: 'hidden' }}>
-              <View style={{ width: `${Math.round(vlm.progress * 100)}%`, height: 6, backgroundColor: p.tint.yellow.ink }} />
-            </View>
-            <Txt size={11.5} style={{ opacity: 0.85 }}>
-              {Math.round(vlm.progress * 100)}% · {Math.round((vlm.progress * VLM_TOTAL) / 1e6)} / {Math.round(VLM_TOTAL / 1e6)} MB
-            </Txt>
-            <Btn size="sm" kind="ghost" label={lang === 'hi' ? 'रद्द करें' : 'Cancel'} onPress={() => cancelVlmDownload()} style={{ alignSelf: 'flex-start' }} />
-          </View>
-        ) : vlm.status === 'ready' ? (
-          <Row>
-            <Icon name="check" size={14} />
-            <Txt size={13} weight="600" style={{ flex: 1 }}>
-              {`${t('ready')} · ${Math.round(VLM_TOTAL / 1e6)} MB`}
-            </Txt>
-            <Btn size="sm" kind="ghost" label={t('remove')} onPress={() => void vlm.remove()} />
-          </Row>
-        ) : vlm.status === 'error' ? (
-          <Row style={{ flexWrap: 'wrap' }}>
-            <Txt size={12} weight="600" style={{ flexBasis: '100%' }}>
-              {lang === 'hi' ? 'डाउनलोड नहीं हो पाया।' : 'The download did not finish.'}
-            </Txt>
-            <Btn size="sm" icon="refresh" label={lang === 'hi' ? 'फिर कोशिश करें' : 'Retry'} onPress={() => void vlm.download()} />
-          </Row>
-        ) : (
-          <Btn size="sm" icon="download" label={`${t('download')} ${Math.round(VLM_TOTAL / 1e6)} MB ${lang === 'hi' ? '(वाई-फ़ाई पर)' : 'over Wi-Fi'}`} onPress={() => void vlm.download()} />
-        )}
-        {vlm.error ? (
-          <Txt size={12} weight="600">
-            {vlm.error}
-          </Txt>
-        ) : null}
-      </Tile>
+      <View style={{ gap: 8 }}>
+        <PhotoHelperCard />
+        <Row style={{ justifyContent: 'flex-end' }}>
+          <Btn size="sm" kind="secondary" icon="camera" label={lang === 'hi' ? 'फोटो जाँच खोलें' : 'Open Photo check'} onPress={() => router.push('/photo' as never)} />
+        </Row>
+      </View>
+
+      <GoogleKeyCard />
 
       {/* Server & data */}
       <Tile tint="green">

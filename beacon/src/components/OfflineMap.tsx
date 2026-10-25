@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { PanResponder, ScrollView, View, useWindowDimensions } from 'react-native';
+import { Linking, PanResponder, ScrollView, View, useWindowDimensions } from 'react-native';
 import Svg, { Circle, G, Path, Rect } from 'react-native-svg';
 import { useLocal, useT } from '../i18n';
 import { type Nearby, type PlaceKind, compassWord, formatDistance, nearest, project } from '../maps/osm';
+import { directionsUrl, geoIntent } from '../services/gmaps';
 import { type Fix, getFix, watchFix } from '../services/location';
 import { useMap } from '../services/maps';
 import { radius } from '../theme';
@@ -26,7 +27,25 @@ const ROAD_STYLE = [
   { w: 1.4, c: '#FFFFFF' },
 ];
 
-export function OfflineMap({ initialPlace, height = 340 }: { initialPlace?: PlaceKind; playful?: boolean; height?: number }) {
+/** Open a link, falling back silently to the next one; never throws. */
+function openLink(primary: string, fallback?: string) {
+  try {
+    void Linking.openURL(primary).catch(() => {
+      if (fallback) void Linking.openURL(fallback).catch(() => {});
+    });
+  } catch {
+    // silent no-op
+  }
+}
+
+/** Walking under 2 km, driving otherwise. */
+function openPlaceInGoogleMaps(pl: { lat: number; lon: number; name?: string; distanceM: number }, fix: Fix | null) {
+  const mode = pl.distanceM < 2000 ? 'walking' : 'driving';
+  const url = directionsUrl({ lat: pl.lat, lon: pl.lon, mode, originLat: fix?.lat, originLon: fix?.lon });
+  openLink(url, geoIntent(pl.lat, pl.lon, pl.name));
+}
+
+export function OfflineMap({ initialPlace, height = 340, onFilterChange }: { initialPlace?: PlaceKind; playful?: boolean; height?: number; onFilterChange?: (k: PlaceKind | null) => void }) {
   const { p } = useTheme();
   const t = useT();
   const L = useLocal();
@@ -36,7 +55,11 @@ export function OfflineMap({ initialPlace, height = 340 }: { initialPlace?: Plac
   const { area, loaded, downloading, error, load, download } = useMap();
   const [fix, setFix] = useState<Fix | null>(null);
   const [fixSettled, setFixSettled] = useState(false); // true once the first GPS attempt has returned, fix or not
-  const [filter, setFilter] = useState<PlaceKind | null>(initialPlace ?? null);
+  const [filter, setFilterState] = useState<PlaceKind | null>(initialPlace ?? null);
+  const setFilter = (k: PlaceKind | null) => {
+    setFilterState(k);
+    onFilterChange?.(k);
+  };
   const [scale, setScale] = useState(120); // px per km
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [target, setTarget] = useState<Nearby | null>(null);
@@ -209,12 +232,23 @@ export function OfflineMap({ initialPlace, height = 340 }: { initialPlace?: Plac
                             {compassWord(pl.bearing)}
                           </Txt>
                         </View>
+                        <Press accessibilityRole="button" accessibilityLabel="Navigate in Google Maps / गूगल मैप्स में रास्ता" onPress={() => openPlaceInGoogleMaps(pl, fix)} style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: p.card, alignItems: 'center', justifyContent: 'center', marginLeft: 4 }}>
+                          <Icon name="navigate" size={15} color={p.tint[PLACE_TINT[pl.kind]].ink} />
+                        </Press>
                       </Row>
                     </Card>
                   </Press>
                 </Appear>
               );
             })}
+            {target ? (
+              <Press accessibilityRole="button" onPress={() => openPlaceInGoogleMaps(target, fix)} style={{ alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 6, height: 36, paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: p.text }}>
+                <Icon name="navigate" size={14} color={p.card} />
+                <Txt size={12.5} weight="600" color={p.card}>
+                  Open in Google Maps · गूगल मैप्स में खोलें
+                </Txt>
+              </Press>
+            ) : null}
           </View>
           <Row style={{ justifyContent: 'space-between' }}>
             <Txt size={11} color={p.muted} style={{ flex: 1 }}>

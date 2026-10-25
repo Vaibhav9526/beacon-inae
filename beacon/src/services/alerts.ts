@@ -40,9 +40,11 @@ async function loadCache(): Promise<AlertItem[]> {
 function merge(a: AlertItem[], b: AlertItem[]): AlertItem[] {
   const map = new Map<string, AlertItem>();
   for (const x of [...a, ...b]) {
-    const prev = map.get(x.id);
-    // keep an official copy over a relayed one
-    if (!prev || (prev.trust === 'relayed' && x.trust === 'official')) map.set(x.id, x);
+    // air-quality readings older builds stored one per hour: they all count as the same alert, newest wins
+    const key = x.id.startsWith('aqi-') ? 'aqi' : x.id;
+    const prev = map.get(key);
+    // keep an official copy over a relayed one; otherwise the newer reading wins
+    if (!prev || (prev.trust === 'relayed' && x.trust === 'official') || (prev.trust === x.trust && x.seenAt > prev.seenAt)) map.set(key, x);
   }
   const rank = { severe: 0, warning: 1, watch: 2, info: 3 } as const;
   return [...map.values()].filter((x) => !x.expires || x.expires > Date.now()).sort((p, q) => rank[p.severity] - rank[q.severity] || q.seenAt - p.seenAt);

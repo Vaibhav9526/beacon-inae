@@ -23,37 +23,30 @@ const useRecorder: AudioMod['useAudioRecorder'] = audioMod ? audioMod.useAudioRe
 
 export type MicState = 'idle' | 'listening' | 'thinking' | 'error';
 
+export interface VoiceCaptureOptions {
+  /** Called once when listening starts (for a haptic tick). */
+  onStart?: () => void;
+  onState?: (s: MicState) => void;
+}
+
 /**
- * Speak to the app. With an ElevenLabs key and internet: press and hold, release to send (Scribe, Hindi and English).
- * Without: tap once and Android's on-device recogniser listens. Either way `onText` gets the words.
+ * The speech capture behind every mic in the app. With an ElevenLabs key and internet: press and hold, release to
+ * send (Scribe, Hindi and English). Without: tap once and the phone's on-device recogniser listens.
+ * `onText` gets the recognised words. Returns the state plus press handlers to spread onto a Pressable.
  */
-export function MicButton({ onText, onState, size = 40, filled }: { onText: (text: string) => void; onState?: (s: MicState) => void; size?: number; filled?: boolean }) {
-  const { p } = useTheme();
+export function useVoiceCapture(onText: (text: string) => void, opts: VoiceCaptureOptions = {}) {
   const lang = useLang();
-  const haptics = useSettings((s) => s.haptics);
   const hasKey = useEleven((s) => s.has);
   const online = useOnline();
   const recorder = useRecorder(audioMod?.RecordingPresets.HIGH_QUALITY ?? ({} as never));
   const [state, setState] = useState<MicState>('idle');
   const startedAt = useRef(0);
-  const pulse = useSharedValue(0);
   const cloud = !!audioMod && hasKey && online && Platform.OS !== 'web';
 
   const set = (s: MicState) => {
     setState(s);
-    onState?.(s);
+    opts.onState?.(s);
   };
-
-  useEffect(() => {
-    if (state === 'listening') pulse.value = withRepeat(withTiming(1, { duration: 900, easing: Easing.out(Easing.quad) }), -1, false);
-    else {
-      cancelAnimation(pulse);
-      pulse.value = 0;
-    }
-  }, [state, pulse]);
-  const ring = useAnimatedStyle(() => ({ opacity: 0.35 * (1 - pulse.value), transform: [{ scale: 1 + pulse.value * 0.9 }] }));
-
-  const buzz = () => haptics && Platform.OS !== 'web' && Haptics.selectionAsync().catch(() => {});
 
   const down = async () => {
     if (!cloud || state !== 'idle') return;
@@ -63,7 +56,7 @@ export function MicButton({ onText, onState, size = 40, filled }: { onText: (tex
       await recorder!.prepareToRecordAsync();
       recorder!.record();
       startedAt.current = Date.now();
-      buzz();
+      opts.onStart?.();
       set('listening');
     } catch {
       set('error');
@@ -91,17 +84,45 @@ export function MicButton({ onText, onState, size = 40, filled }: { onText: (tex
   const tap = async () => {
     if (cloud || state !== 'idle') return;
     if (!voiceSupported() || !voiceStatus().available) return set('error');
-    buzz();
+    opts.onStart?.();
     set('listening');
     const text = await listenOnce(lang);
     set('idle');
     if (text) onText(text);
   };
 
+  return {
+    state,
+    cloud,
+    onPressIn: () => void down(),
+    onPressOut: () => void up(),
+    onPress: () => void tap(),
+  };
+}
+
+/**
+ * Speak to the app. Press and hold with cloud speech, or tap for the on-device recogniser. See `useVoiceCapture`.
+ */
+export function MicButton({ onText, onState, size = 40, filled }: { onText: (text: string) => void; onState?: (s: MicState) => void; size?: number; filled?: boolean }) {
+  const { p } = useTheme();
+  const haptics = useSettings((s) => s.haptics);
+  const buzz = () => haptics && Platform.OS !== 'web' && Haptics.selectionAsync().catch(() => {});
+  const { state, onPressIn, onPressOut, onPress } = useVoiceCapture(onText, { onState, onStart: buzz });
+  const pulse = useSharedValue(0);
+
+  useEffect(() => {
+    if (state === 'listening') pulse.value = withRepeat(withTiming(1, { duration: 900, easing: Easing.out(Easing.quad) }), -1, false);
+    else {
+      cancelAnimation(pulse);
+      pulse.value = 0;
+    }
+  }, [state, pulse]);
+  const ring = useAnimatedStyle(() => ({ opacity: 0.35 * (1 - pulse.value), transform: [{ scale: 1 + pulse.value * 0.9 }] }));
+
   const bg = filled || state === 'listening' ? p.accent : p.cardAlt;
   const fg = filled || state === 'listening' ? p.onAccent : p.text;
   return (
-    <Press accessibilityRole="button" accessibilityLabel="Speak" onPressIn={() => void down()} onPressOut={() => void up()} onPress={() => void tap()} style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+    <Press accessibilityRole="button" accessibilityLabel="Speak" onPressIn={onPressIn} onPressOut={onPressOut} onPress={onPress} style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
       <Animated.View style={[{ position: 'absolute', width: size, height: size, borderRadius: size / 2, backgroundColor: p.accent }, ring]} />
       <Animated.View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: state === 'error' ? p.danger : bg, alignItems: 'center', justifyContent: 'center' }}>
         <Icon name={state === 'thinking' ? 'sparkle' : 'mic'} size={size * 0.44} color={state === 'error' ? '#fff' : fg} />

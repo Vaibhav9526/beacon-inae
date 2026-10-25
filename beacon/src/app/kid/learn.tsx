@@ -1,8 +1,8 @@
 import { router } from 'expo-router';
 import React from 'react';
-import { ScrollView, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View } from 'react-native';
 import { Icon } from '../../components/Icon';
+import { Screen } from '../../components/Screen';
 import { Shield } from '../../components/Deco';
 import { Appear, Card, IconTile, Press, Row, Txt, useTheme } from '../../components/ui';
 import { useLocal, useT } from '../../i18n';
@@ -14,10 +14,9 @@ export default function Learn() {
   const t = useT();
   const L = useLocal();
   const { p } = useTheme();
-  const insets = useSafeAreaInsets();
   const stars = useSettings((s) => s.stars);
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: p.bg }} contentContainerStyle={{ paddingTop: insets.top + 12, paddingHorizontal: 16, paddingBottom: 120, gap: 12 }} showsVerticalScrollIndicator={false}>
+    <Screen back={false}>
       <Appear>
         <Card tint="green" style={{ overflow: 'hidden', minHeight: 140, justifyContent: 'flex-end', padding: 20 }}>
           <View style={{ gap: 4, paddingRight: 92 }}>
@@ -54,6 +53,6 @@ export default function Learn() {
           </Press>
         </Appear>
       ))}
-    </ScrollView>
+    </Screen>
   );
 }

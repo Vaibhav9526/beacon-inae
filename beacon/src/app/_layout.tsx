@@ -9,7 +9,6 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { startNeedle } from '../ai/needle';
 import { FallPrompt } from '../components/FallPrompt';
 import { ThemeProvider } from '../components/ui';
-import { VoiceDock } from '../components/VoiceDock';
 import { registerPush, setupNotifications, useAlerts } from '../services/alerts';
 import { startFallWatch, stopFallWatch } from '../services/fall';
 import { startFamilyPing, startGateway, stopFamilyPing } from '../services/gateway';
@@ -51,7 +50,7 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <StatusBar style={p.dark ? 'light' : 'dark'} />
         {/* one theme for the whole tree, so every screen can call useTheme() */}
-        <ThemeProvider mode={mode ?? 'adult'}>{fontsLoaded ? <View style={{ flex: 1 }}><Stack screenOptions={{ headerShown: false, animation: 'fade_from_bottom', animationDuration: 200, contentStyle: { backgroundColor: p.bg } }} /><VoiceDock hidden={!onboarded} /><FallPrompt /></View> : <View style={{ flex: 1, backgroundColor: p.bg }} />}</ThemeProvider>
+        <ThemeProvider mode={mode ?? 'adult'}>{fontsLoaded ? <View style={{ flex: 1 }}><Stack screenOptions={{ headerShown: false, animation: 'fade_from_bottom', animationDuration: 200, contentStyle: { backgroundColor: p.bg } }} /><FallPrompt /></View> : <View style={{ flex: 1, backgroundColor: p.bg }} />}</ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

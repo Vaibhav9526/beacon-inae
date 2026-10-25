@@ -97,7 +97,7 @@ export function PhotoTriage({ uri, onClose, onSummary }: Props) {
   };
 
   return (
-    <View style={{ flex: 1, backgroundColor: p.bg }}>
+    <View style={{ flex: 1, backgroundColor: p.sheet }}>
       <Row style={{ justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 }}>
         <Txt size={16} weight="600">
           {tr('Photo check', 'फ़ोटो जाँच')}

@@ -113,8 +113,9 @@ export default function More() {
         </View>
       </Appear>
 
-      <Appear index={2}>
-        <BentoTile label={t('tabKids')} icon="family" tint="blue" deco={<Flower size={80} />} tilt={7} minH={104} onPress={go('/family')} />
+      <Appear index={2} style={{ flexDirection: 'row', gap: 12 }}>
+        <BentoTile flex={1} label={t('tabKids')} icon="family" tint="blue" deco={<Flower size={80} />} tilt={7} minH={104} onPress={go('/family')} />
+        <BentoTile flex={1} label={hi ? 'फोटो जाँच' : 'Photo check'} icon="camera" tint="yellow" deco={<Cross size={70} />} tilt={-8} minH={104} onPress={go('/photo')} />
       </Appear>
 
       <Appear index={3} style={{ flexDirection: 'row', gap: 12 }}>

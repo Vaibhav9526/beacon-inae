@@ -11,17 +11,17 @@ export default function KidLayout() {
   const bar = useMemo(
     () =>
       makeTabBar(
+        // two items, then the voice button in the middle, then two more
         [
           { name: 'index', label: t('tabHome'), icon: 'home' },
           { name: 'learn', label: t('tabLearn'), icon: 'learn' },
           { name: 'play', label: t('tabPlay'), icon: 'play' },
-          { name: 'didi', label: t('tabDidi'), icon: 'chat' },
           { name: 'me', label: t('tabMe'), icon: 'me' },
         ],
         'pill',
         '/kid',
       ),
-    [lang], // eslint-disable-line react-hooks/exhaustive-deps
+    [lang, t],
   );
   return (
     <ThemeProvider mode="kid">
@@ -29,7 +29,7 @@ export default function KidLayout() {
         <Tabs.Screen name="index" />
         <Tabs.Screen name="learn" />
         <Tabs.Screen name="play" />
-        <Tabs.Screen name="didi" />
+        <Tabs.Screen name="didi" options={{ href: null }} />
         <Tabs.Screen name="me" />
         <Tabs.Screen name="game/[id]" options={{ href: null }} />
       </Tabs>

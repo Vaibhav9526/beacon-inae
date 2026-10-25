@@ -1,12 +1,12 @@
 import { router } from 'expo-router';
 import React, { useState } from 'react';
-import { ScrollView, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { View } from 'react-native';
 import { Bell, Bolt, Flower, Shield, Wave } from '../../components/Deco';
 import { DayStrip, dateLine } from '../../components/DayStrip';
 import { HeroCard, PlanGrid } from '../../components/HeroCard';
 import { Icon, type IconName } from '../../components/Icon';
 import { PixelAvatar, SPECIES, buddy, cast } from '../../components/PixelAvatar';
+import { Screen } from '../../components/Screen';
 import { SosPanel } from '../../components/SosPanel';
 import { StatusPill } from '../../components/Status';
 import { Appear, Btn, Card, Press, Row, SectionTitle, type TintName, Txt, useTheme } from '../../components/ui';
@@ -28,7 +28,6 @@ export default function KidHome() {
   const t = useT();
   const L = useLocal();
   const { p } = useTheme();
-  const insets = useSafeAreaInsets();
   const name = useSettings((s) => s.kidName);
   const avatar = useSettings((s) => s.kidAvatar);
   const stars = useSettings((s) => s.stars);
@@ -52,7 +51,7 @@ export default function KidHome() {
   }));
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: p.bg }} contentContainerStyle={{ paddingTop: insets.top + 12, paddingHorizontal: 20, paddingBottom: 88 + insets.bottom, gap: 12 }} showsVerticalScrollIndicator={false}>
+    <Screen back={false}>
       <Appear>
         <Row style={{ justifyContent: 'space-between' }}>
           <View style={{ flex: 1, gap: 2 }}>
@@ -141,7 +140,7 @@ export default function KidHome() {
           </Row>
         </View>
       </Appear>
-    </ScrollView>
+    </Screen>
   );
 }
 

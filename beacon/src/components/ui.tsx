@@ -47,7 +47,7 @@ export function Card({ style, tint, children, ...rest }: ViewProps & { tint?: Ti
   const t = tint ? p.tint[tint] : null;
   // tinted cards are borderless vivid blocks; untinted cards keep a 1px hairline
   return (
-    <View {...rest} style={[{ backgroundColor: t ? t.bg : p.card, borderRadius: 24, padding: 14, borderWidth: t ? 0 : 1, borderColor: p.border }, style]}>
+    <View {...rest} style={[{ backgroundColor: t ? t.bg : p.card, borderRadius: radius.lg, padding: 14, borderWidth: t ? 0 : 1, borderColor: p.border }, style]}>
       {t ? <InkCtx.Provider value={t.ink}>{children}</InkCtx.Provider> : children}
     </View>
   );

@@ -116,7 +116,8 @@ export async function fetchAirQuality(p: Point, f: Fetcher = defaultFetch): Prom
   const label = aqi >= 300 ? 'Hazardous' : aqi >= 200 ? 'Very unhealthy' : 'Unhealthy';
   return [
     {
-      id: `aqi-${new Date().toISOString().slice(0, 13)}`,
+      // one alert per place: a newer reading replaces the older one instead of piling up every hour
+      id: `aqi-${p.lat.toFixed(1)},${p.lon.toFixed(1)}`,
       title: `${label} air (AQI ${Math.round(aqi)})`,
       body: `PM2.5 is ${Math.round(d.current!.pm2_5)} µg/m³. Limit outdoor activity, wear an N95 mask outside, keep windows closed.`,
       severity,

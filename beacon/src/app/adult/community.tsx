@@ -2,8 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import { distanceKm } from '../../alerts/sources';
-import { Flower, Ribbon } from '../../components/Deco';
-import { Icon, type IconName } from '../../components/Icon';
+import { Icon } from '../../components/Icon';
 import { Screen } from '../../components/Screen';
 import { useKeyboardOpen } from '../../components/TabBar';
 import { SkeletonList } from '../../components/Skeleton';
@@ -18,12 +17,9 @@ import { radius } from '../../theme';
 
 type Tab = 'chat' | 'board' | 'people' | 'sos';
 const levelKey = ['channelBlock', 'channelNeighborhood', 'channelCity', 'channelProvince', 'channelRegion'] as const;
-const TABS: { k: Tab; icon: IconName }[] = [
-  { k: 'chat', icon: 'chat' },
-  { k: 'board', icon: 'doc' },
-  { k: 'people', icon: 'family' },
-  { k: 'sos', icon: 'siren' },
-];
+const TABS: Tab[] = ['chat', 'board', 'people', 'sos'];
+
+const clock = (ts: number) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
 export default function Community() {
   const { p } = useTheme();
@@ -86,24 +82,30 @@ export default function Community() {
     setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 100);
   };
 
-  const bubble = (m: PublicMessage) => {
+  // a run is consecutive messages from one sender: only the first bubble of a run shows the nickname
+  const bubble = (m: PublicMessage, grouped: boolean) => {
     const mine = m.from === mesh.myId;
     return (
-      <Appear key={m.id} style={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '88%' }}>
-        <View style={{ backgroundColor: mine ? p.accent : p.tint.lilac.bg, paddingVertical: 9, paddingHorizontal: 13, borderRadius: 24, borderBottomRightRadius: mine ? 6 : 24, borderBottomLeftRadius: mine ? 24 : 6, gap: 3 }}>
-          <Row style={{ gap: 6 }}>
-            <Txt size={11.5} weight="700" color={mine ? p.onAccent : p.tint.lilac.ink}>
-              {mine ? 'You' : m.nickname}
+      <Appear key={m.id} style={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '78%', marginTop: grouped ? 0 : 8 }}>
+        {!mine && !grouped ? (
+          <Row style={{ gap: 5, paddingHorizontal: 4, marginBottom: 3 }}>
+            <Txt size={11.5} color={p.muted}>
+              {m.nickname}
             </Txt>
-            {!mine ? <Icon name={m.verified ? 'check' : 'info'} size={11} color={p.tint.lilac.ink} /> : null}
+            {m.verified ? <Icon name="check" size={10} color={p.muted} /> : null}
             {m.hops > 0 ? (
-              <Txt size={10} color={mine ? p.onAccent : p.tint.lilac.ink}>
+              <Txt size={10.5} color={p.muted}>
                 {m.hops} {t('hops')}
               </Txt>
             ) : null}
           </Row>
-          <Txt size={14} color={mine ? p.onAccent : p.tint.lilac.ink}>
+        ) : null}
+        <View style={{ backgroundColor: mine ? p.brand : p.card, borderWidth: mine ? 0 : 1, borderColor: p.border, borderRadius: 18, paddingVertical: 8, paddingHorizontal: 12, gap: 2 }}>
+          <Txt size={14} color={mine ? p.onBrand : p.text}>
             {m.text}
+          </Txt>
+          <Txt size={10} color={mine ? p.onBrand : p.muted} style={{ alignSelf: 'flex-end', opacity: 0.7 }}>
+            {clock(m.timestamp)}
           </Txt>
         </View>
       </Appear>
@@ -112,12 +114,11 @@ export default function Community() {
 
   return (
     <Screen back={false} scroll={false} title={t('communityTitle')} contentStyle={kbOpen ? { paddingBottom: 0 } : undefined}>
-      <View style={{ paddingHorizontal: 16, gap: 8 }}>
-        <Row style={{ gap: 6, flexWrap: 'wrap' }}>
-          {TABS.map(({ k, icon }) => (
-            <Chip
+      <View style={{ paddingHorizontal: 16, gap: 10 }}>
+        <Row style={{ flexWrap: 'wrap', alignItems: 'center' }}>
+          {TABS.map((k) => (
+            <TextTab
               key={k}
-              icon={icon}
               active={tab === k}
               label={k === 'chat' ? t('chat') : k === 'board' ? t('resourceBoard') : k === 'people' ? t('peopleNearby') : `SOS ${mesh.sos.length}`}
               onPress={() => {
@@ -126,36 +127,52 @@ export default function Community() {
               }}
             />
           ))}
-          {tab === 'people' ? <Chip icon="bluetooth" label="Mesh health" onPress={() => router.push('/mesh')} /> : null}
+          {tab === 'people' ? (
+            <Press accessibilityRole="link" onPress={() => router.push('/mesh')} style={{ paddingVertical: 6, marginLeft: 'auto' }}>
+              <Txt size={12.5} color={p.muted}>
+                Mesh health
+              </Txt>
+            </Press>
+          ) : null}
         </Row>
-        <Card tint="blue" style={{ overflow: 'hidden', minHeight: 84, justifyContent: 'center', paddingRight: 84 }}>
-          <Txt size={12} color={p.tint.blue.ink}>
-            {mesh.radioAvailable ? t('meshHint') : t('offlineNoMesh')}
+        {tab === 'chat' ? (
+          <Txt size={12} color={p.muted}>
+            {mesh.radioAvailable ? 'Messages hop between phones over Bluetooth' : t('offlineNoMesh')}
           </Txt>
-          <View pointerEvents="none" style={{ position: 'absolute', right: -12, top: -14, transform: [{ rotate: '12deg' }] }}>
-            <Ribbon size={84} />
-          </View>
-        </Card>
+        ) : null}
         {tab === 'chat' && !privateTo ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
-            {CHANNEL_LEVELS.map((l, i) => (
-              <Chip key={l.name} active={level === i} label={`${t(levelKey[i])} · ${(mesh.channels[i] ?? '').replace('geo:', '').toUpperCase() || '—'}`} onPress={() => setLevel(i)} />
-            ))}
+            {CHANNEL_LEVELS.map((l, i) => {
+              const active = level === i;
+              return (
+                <Press
+                  key={l.name}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  onPress={() => setLevel(i)}
+                  style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: active ? p.text : p.border, backgroundColor: active ? p.cardAlt : 'transparent' }}
+                >
+                  <Txt size={12} weight={active ? '600' : '400'} color={active ? p.text : p.muted}>
+                    {`${t(levelKey[i])} · ${(mesh.channels[i] ?? '').replace('geo:', '').toUpperCase() || '—'}`}
+                  </Txt>
+                </Press>
+              );
+            })}
           </ScrollView>
         ) : null}
       </View>
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={90}>
-        <ScrollView ref={scroll} style={{ flex: 1 }} contentContainerStyle={{ padding: 16, gap: 8 }} onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: false })} showsVerticalScrollIndicator={false}>
-          {tab === 'chat' && !privateTo && (chat.length === 0 ? <Empty text={t('nobodyYet')} /> : chat.map(bubble))}
+        <ScrollView ref={scroll} style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8, gap: 8 }} onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: false })} showsVerticalScrollIndicator={false}>
+          {tab === 'chat' && !privateTo ? (chat.length === 0 ? <Empty text="No messages yet. Say hello." /> : chat.map((m, i) => bubble(m, chat[i - 1]?.from === m.from))) : null}
 
           {tab === 'chat' && privateTo ? (
             <>
               <Btn size="sm" kind="ghost" icon="back" label={t('back')} onPress={() => setPrivateTo(null)} style={{ alignSelf: 'flex-start' }} />
               {dm.map((m) => (
-                <View key={m.id} style={{ alignSelf: 'flex-start', backgroundColor: p.tint.yellow.bg, padding: 12, borderRadius: 24, borderBottomLeftRadius: 6, maxWidth: '88%' }}>
-                  <Txt size={14} color={p.tint.yellow.ink}>{m.text}</Txt>
-                  {m.viaCourier ? <Txt size={10} color={p.tint.yellow.ink}>via courier</Txt> : null}
+                <View key={m.id} style={{ alignSelf: 'flex-start', maxWidth: '78%', backgroundColor: p.card, borderWidth: 1, borderColor: p.border, borderRadius: 18, paddingVertical: 8, paddingHorizontal: 12 }}>
+                  <Txt size={14} color={p.text}>{m.text}</Txt>
+                  {m.viaCourier ? <Txt size={10} color={p.muted}>via courier</Txt> : null}
                 </View>
               ))}
             </>
@@ -177,7 +194,7 @@ export default function Community() {
                       <Row style={{ justifyContent: 'space-between' }}>
                         <Badge soft label={(m.kind === 'offer' ? t('offerBoard') : t('needBoard')).toUpperCase()} color={bt.ink} />
                         <Txt size={11} color={bt.ink}>
-                          {m.nickname} · {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {m.nickname} · {clock(m.timestamp)}
                         </Txt>
                       </Row>
                       <Txt size={14} color={bt.ink}>{m.text}</Txt>
@@ -225,15 +242,27 @@ export default function Community() {
         </ScrollView>
 
         {tab !== 'people' && tab !== 'sos' ? (
-          <Row style={{ padding: 12, gap: 8, backgroundColor: p.bg, borderTopWidth: 1, borderTopColor: p.border }}>
-            <TextInput value={text} onChangeText={setText} onSubmitEditing={send} placeholder={t('typeMessage')} placeholderTextColor={p.muted} style={{ flex: 1, height: 40, backgroundColor: p.card, borderWidth: 1, borderColor: p.border, borderRadius: radius.pill, paddingHorizontal: 14, color: p.text, fontSize: 13.5, fontFamily: 'Poppins_400Regular', paddingVertical: 0 }} />
-            <Press accessibilityLabel={t('send')} onPress={send} disabled={!text.trim()} style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: p.accent, alignItems: 'center', justifyContent: 'center', opacity: text.trim() ? 1 : 0.4 }}>
+          <Row style={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: 12, gap: 8 }}>
+            <TextInput value={text} onChangeText={setText} onSubmitEditing={send} placeholder={t('typeMessage')} placeholderTextColor={p.muted} style={{ flex: 1, height: 42, backgroundColor: p.card, borderWidth: 1, borderColor: p.border, borderRadius: 21, paddingHorizontal: 16, color: p.text, fontSize: 14, fontFamily: 'Poppins_400Regular', paddingVertical: 0 }} />
+            <Press accessibilityLabel={t('send')} onPress={send} disabled={!text.trim()} style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: p.accent, alignItems: 'center', justifyContent: 'center', opacity: text.trim() ? 1 : 0.4 }}>
               <Icon name="send" size={16} color={p.onAccent} />
             </Press>
           </Row>
         ) : null}
       </KeyboardAvoidingView>
     </Screen>
+  );
+}
+
+/** Plain text tab: bold ink when active, muted otherwise. */
+function TextTab({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
+  const { p } = useTheme();
+  return (
+    <Press accessibilityRole="tab" accessibilityState={{ selected: active }} onPress={onPress} style={{ paddingVertical: 6, paddingRight: 14 }}>
+      <Txt size={14} weight={active ? '600' : '400'} color={active ? p.text : p.muted}>
+        {label}
+      </Txt>
+    </Press>
   );
 }
 
@@ -266,7 +295,7 @@ function SosHeard() {
               {m.medical ? <Txt size={12} color={p.tint.pink.ink}>{m.medical}</Txt> : null}
               <Txt size={11.5} color={p.tint.pink.ink} style={{ opacity: 0.8 }}>
                 {d !== null ? `${d} km · ` : ''}
-                {m.hops} {t('hops')} · {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                {m.hops} {t('hops')} · {clock(m.timestamp)}
               </Txt>
             </Card>
           </Appear>
@@ -276,17 +305,14 @@ function SosHeard() {
   );
 }
 
-/** Empty state: a yellow sticker card with a flower in the corner. */
+/** Empty state: centered muted text. */
 function Empty({ text }: { text: string }) {
   const { p } = useTheme();
   return (
-    <Card tint="yellow" style={{ overflow: 'hidden', minHeight: 110, justifyContent: 'center', paddingRight: 92 }}>
-      <Txt size={15} weight="700" color={p.tint.yellow.ink}>
+    <View style={{ paddingVertical: 36, alignItems: 'center' }}>
+      <Txt size={14} color={p.muted} style={{ textAlign: 'center' }}>
         {text}
       </Txt>
-      <View pointerEvents="none" style={{ position: 'absolute', right: -12, top: -14, transform: [{ rotate: '12deg' }] }}>
-        <Flower size={84} />
-      </View>
-    </Card>
+    </View>
   );
 }

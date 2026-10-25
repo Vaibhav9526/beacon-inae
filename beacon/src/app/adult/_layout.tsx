@@ -11,28 +11,27 @@ export default function AdultLayout() {
   const bar = useMemo(
     () =>
       makeTabBar(
+        // two items, then the voice button in the middle, then two more
         [
           { name: 'index', label: t('tabHome'), icon: 'home' },
           { name: 'map', label: t('tabMap'), icon: 'map' },
-          { name: 'community', label: t('tabCommunity'), icon: 'chat' },
-          { name: 'news', label: t('tabNews'), icon: 'news' },
           { name: 'aid', label: t('tabAid'), icon: 'aid' },
-          { name: 'more', label: t('tabMore'), icon: 'more' },
+          { name: 'community', label: lang === 'hi' ? 'चैट' : 'Chat', icon: 'chat' },
         ],
         'bar',
         '/adult',
       ),
-    [lang], // eslint-disable-line react-hooks/exhaustive-deps
+    [lang, t],
   );
   return (
     <ThemeProvider mode="adult">
       <Tabs tabBar={bar as never} screenOptions={{ headerShown: false }}>
         <Tabs.Screen name="index" />
         <Tabs.Screen name="map" />
-        <Tabs.Screen name="community" />
-        <Tabs.Screen name="news" />
         <Tabs.Screen name="aid" />
-        <Tabs.Screen name="more" />
+        <Tabs.Screen name="community" />
+        <Tabs.Screen name="news" options={{ href: null }} />
+        <Tabs.Screen name="more" options={{ href: null }} />
       </Tabs>
     </ThemeProvider>
   );

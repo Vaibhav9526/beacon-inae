@@ -1,75 +1,47 @@
 /**
- * MOUNTING (done by the owner, not here):
- * Mount <VoiceDock /> once, as an absolutely positioned sibling of the navigator in the root layout
- * src/app/_layout.tsx, inside ThemeProvider and after the <Stack>/<Tabs>, e.g.
- *   <View style={{ flex: 1 }}>
- *     <Stack ... />
- *     <VoiceDock hidden={isWelcome} />
- *   </View>
- * It floats bottom-right, above the tab bar, on every screen. Pass hidden on screens where it should not show
- * (for example welcome and the SOS screens). Its wrapper ignores touches outside the pill.
+ * Voice commands shared by the bottom-bar mic (VoiceFab). The old floating dock is retired: its default export
+ * renders nothing. The hooks and the toast live here so VoiceFab can use them.
  */
-import { router, usePathname } from 'expo-router';
+import { router } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import Animated, { Easing, FadeIn, cancelAnimation, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withRepeat, withSequence, withTiming } from 'react-native-reanimated';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { runAction, allowedByVoice } from '../ai/actions';
 import { parseNavigation } from '../ai/navigate';
 import { route } from '../ai/router';
 import { speak } from '../services/speech';
-import { useSettings } from '../state/settings';
-import { MicButton, type MicState } from './MicButton';
-import { Press, Txt, useTheme } from './ui';
+import { Press, Txt } from './ui';
 
 const PERSONA_CHAT = '/kid/didi';
 const HOLD_MS = 1400;
 const DIDI_HOLD_MS = 4000;
-const PILL = 40;
-/** Screens that already have their own mic or chat input: the dock stays out of their way. */
-const HIDE_ON = ['/aid', '/didi', '/community', '/report', '/hub', '/welcome'];
 
-interface Toast {
+export interface Toast {
   text: string;
   /** Tapping the toast opens the persona chat. Used for the "Ask Didi instead?" chip. */
   toPersona?: boolean;
 }
 
-export function VoiceDock({ hidden = false }: { hidden?: boolean }) {
-  const insets = useSafeAreaInsets();
-  const { p } = useTheme();
-  const pathname = usePathname();
-  const reduced = useReducedMotion();
-  const mode = useSettings((s) => s.mode);
+/**
+ * Runs a recognised phrase: screen names first (no model), then calls and "I am safe" via the keyword router,
+ * otherwise offers the persona chat. Returns `onText` to feed recognised text, and the current `toast`.
+ */
+export function useVoiceCommands() {
   const [toast, setToast] = useState<Toast | null>(null);
-  const opacity = useSharedValue(0);
-  const breath = useSharedValue(1);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // very subtle idle breathing, so the dock reads as alive without drawing attention
-  useEffect(() => {
-    if (reduced) {
-      breath.value = 1;
-      return;
-    }
-    breath.value = withRepeat(withTiming(0.9, { duration: 3200, easing: Easing.inOut(Easing.quad) }), -1, true);
-    return () => cancelAnimation(breath);
-  }, [breath, reduced]);
-  const breathStyle = useAnimatedStyle(() => ({ opacity: breath.value }));
-
-  const show = useCallback(
-    (t: Toast, holdMs: number) => {
-      if (timer.current) clearTimeout(timer.current);
-      setToast(t);
-      opacity.value = withSequence(withTiming(1, { duration: 120 }), withDelay(holdMs, withTiming(0, { duration: 300 })));
-      timer.current = setTimeout(() => setToast(null), holdMs + 320);
-    },
-    [opacity],
-  );
-
-  useEffect(() => () => {
+  const show = useCallback((t: Toast, holdMs: number) => {
     if (timer.current) clearTimeout(timer.current);
+    setToast(t);
+    timer.current = setTimeout(() => setToast(null), holdMs + 320);
   }, []);
+
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
 
   const onText = useCallback(
     async (text: string) => {
@@ -102,67 +74,50 @@ export function VoiceDock({ hidden = false }: { hidden?: boolean }) {
     [show],
   );
 
-  const toastStyle = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  return { onText, toast };
+}
 
-  if (hidden || HIDE_ON.some((r) => pathname.includes(r)) || pathname === '/adult' || pathname === '/') return null; // adult home has its own mic in the header
-
+/** Small dark label that fades in above the bar. Positioned by its parent. */
+export function VoiceToast({ toast }: { toast: Toast | null }) {
+  if (!toast) return null;
+  const label = (
+    <Txt size={13} weight="600" color="#fff">
+      {toast.text}
+    </Txt>
+  );
   return (
-    <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, { zIndex: 50 }]}>
-      {toast ? (
-        <Animated.View pointerEvents={toast.toPersona ? 'auto' : 'none'} style={[styles.toastWrap, { bottom: bottomOffset(insets.bottom, mode === 'kid') + 8 }, toastStyle]}>
-          {toast.toPersona ? (
-            <Press accessibilityRole="button" accessibilityLabel="Ask Didi instead" onPress={() => router.push(PERSONA_CHAT as never)} style={styles.toast}>
-              <Txt size={13} weight="600" color="#fff">
-                {toast.text}
-              </Txt>
-            </Press>
-          ) : (
-            <View style={styles.toast}>
-              <Txt size={13} weight="600" color="#fff">
-                {toast.text}
-              </Txt>
-            </View>
-          )}
-        </Animated.View>
-      ) : null}
-      <Animated.View entering={FadeIn.duration(220).delay(120).easing(Easing.out(Easing.cubic))} style={[styles.pill, { bottom: bottomOffset(insets.bottom, mode === 'kid'), shadowColor: p.dark ? '#000' : '#1B1B2F' }]}>
-        <Animated.View style={[{ width: PILL, height: PILL }, breathStyle]}>
-          <MicButton size={PILL} filled onText={(t) => void onText(t)} />
-        </Animated.View>
-      </Animated.View>
-    </View>
+    <Animated.View key={toast.text + String(toast.toPersona)} entering={FadeIn.duration(120)} exiting={FadeOut.duration(300)} pointerEvents={toast.toPersona ? 'auto' : 'none'} style={styles.toastWrap}>
+      {toast.toPersona ? (
+        <Press accessibilityRole="button" accessibilityLabel="Ask Didi instead" onPress={() => router.push(PERSONA_CHAT as never)} style={styles.toast}>
+          {label}
+        </Press>
+      ) : (
+        <View style={styles.toast}>{label}</View>
+      )}
+    </Animated.View>
   );
 }
 
-// Adult tab bar is about 54px plus the home-indicator inset; the kid tab bar is a floating pill about 66px up.
-// The dock sits above whichever one is showing.
-const bottomOffset = (safeBottom: number, kid: boolean) => (kid ? Math.max(safeBottom, 12) + 54 + 12 : Math.max(safeBottom, 4) + 50 + 14);
+/** Retired: the voice control now lives in the bottom bar (VoiceFab). Kept so the old mount in the root layout is harmless. */
+export function VoiceDock(_props: { hidden?: boolean }) {
+  return null;
+}
+
+export default VoiceDock;
 
 const styles = StyleSheet.create({
-  pill: {
-    position: 'absolute',
-    right: 16,
-    width: PILL,
-    height: PILL,
-    borderRadius: PILL / 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowOpacity: 0.14,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 4,
-  },
   toastWrap: {
     position: 'absolute',
-    right: 16 + PILL + 8,
-    maxWidth: 240,
+    left: 0,
+    right: 0,
+    bottom: 98,
+    alignItems: 'center',
   },
   toast: {
     backgroundColor: '#17171B',
     borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 8,
+    maxWidth: 240,
   },
 });
-
-export default VoiceDock;

@@ -157,7 +157,7 @@ export function SosPanel({ variant }: { variant: 'kid' | 'adult' }) {
   }
 
   return (
-    <Card tint="pink" style={{ alignItems: 'center', gap: 10, padding: 20 }}>
+    <Card tint="pink" style={{ alignItems: 'center', gap: variant === 'adult' ? 6 : 10, padding: variant === 'adult' ? 12 : 20 }}>
       <Pressable accessibilityRole="button" accessibilityLabel={`${t('holdForHelp')}. ${t('tellsParents')}`} onPressIn={begin} onPressOut={release} style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
         <Svg width={size} height={size} style={StyleSheet.absoluteFill}>
           <Circle cx={size / 2} cy={size / 2} r={r} stroke={p.danger + '33'} strokeWidth={3} fill="none" />
