@@ -21,7 +21,7 @@ export default function Aid() {
   const lang = useLang();
   const [persona, setPersona] = useState<PersonaKey>('asha');
   const [tab, setTab] = useState<'ask' | 'browse'>('ask');
-  const [incoming, setIncoming] = useState<{ n: number; text: string }>({ n: 0, text: '' });
+  const [incoming, setIncoming] = useState<{ n: number; text: string; note?: boolean }>({ n: 0, text: '' });
   const [camera, setCamera] = useState(false);
   // the guided photo check; uri is undefined when there is no photo (web, no permission, capture failed)
   const [triage, setTriage] = useState<{ uri?: string } | null>(null);
@@ -31,6 +31,8 @@ export default function Aid() {
   const autoOpened = React.useRef(false);
 
   const say = (text: string) => setIncoming((x) => ({ n: x.n + 1, text }));
+  // a note is shown in the chat as-is; it is not sent to the persona, so no reply is made to it
+  const note = (text: string) => setIncoming((x) => ({ n: x.n + 1, text, note: true }));
 
   const openCamera = async () => {
     try {
@@ -119,7 +121,7 @@ export default function Aid() {
       </Modal>
 
       <Modal visible={triage !== null} animationType="slide" onRequestClose={() => setTriage(null)}>
-        {triage ? <PhotoTriage uri={triage.uri} onClose={() => setTriage(null)} onSummary={(text) => say(text)} /> : null}
+        {triage ? <PhotoTriage uri={triage.uri} onClose={() => setTriage(null)} onSummary={(text) => note(text)} /> : null}
       </Modal>
     </Screen>
   );

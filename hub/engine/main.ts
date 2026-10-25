@@ -1,26 +1,16 @@
 import { HubApp } from './app.ts';
-import { BeaconLink } from './beaconLink.ts';
 import { startHttp } from './httpServer.ts';
 
 /** `npm start`: the hub engine plus its local web UI. The Electron shell loads the same URL. */
 export async function main() {
   const app = new HubApp();
-  const link = new BeaconLink(app.dir, app.relayUrl);
-  app.addSender(link);
-  const pairing = () => link.pairingQr();
   // if the usual port is taken (another hub already running) take any free one
-  const { port, token } = await startHttp(app, { port: Number(process.env.PORT ?? 4747), pairing }).catch((e: NodeJS.ErrnoException) => {
+  const { port, token } = await startHttp(app, { port: Number(process.env.PORT ?? 4747) }).catch((e: NodeJS.ErrnoException) => {
     if (e.code !== 'EADDRINUSE') throw e;
-    return startHttp(app, { port: 0, pairing });
+    return startHttp(app, { port: 0 });
   });
   app.hub.start();
-  const refreshPhones = () =>
-    void link
-      .phones()
-      .then((p) => (app.phonesPaired = p.length))
-      .catch(() => {}); // server not reachable: keep the last count
-  refreshPhones();
-  setInterval(refreshPhones, 30_000).unref();
+  void app.startRelay();
   const url = `http://127.0.0.1:${port}/?t=${token}`;
   console.log(`Beacon Hub is running.\nOpen: ${url}`);
   return { app, url };

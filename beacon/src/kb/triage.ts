@@ -117,8 +117,8 @@ export const TRIAGE_CHOICES: TriageChoice[] = [
       },
       {
         id: 'cut-dirty',
-        ask: ['Was it made by a rusty, dirty or animal object, or a bite?', 'क्या यह ज़ंग लगी, गंदी चीज़ या जानवर से हुआ, या काटने से?'],
-        yes: { severity: 'urgent', guideIds: ['animal-bite'], reason: ['Dirty wounds and bites can get infected. A doctor should check for tetanus and infection.', 'गंदे घाव और काटने से संक्रमण हो सकता है। डॉक्टर टिटनेस और संक्रमण की जाँच करें।'] },
+        ask: ['Was it made by a rusty or dirty object, or by an animal?', 'क्या यह ज़ंग लगी या गंदी चीज़ से, या किसी जानवर से हुआ?'],
+        yes: { severity: 'urgent', guideIds: ['minor-wound', 'animal-bite'], reason: ['Dirty wounds, animal bites and scratches can get infected, and a tetanus shot may be needed. See a doctor today.', 'गंदे घाव, जानवर के काटने और खरोंच में संक्रमण हो सकता है, और टिटनेस का टीका चाहिए हो सकता है। आज डॉक्टर को दिखाएँ।'] },
       },
     ],
   },
@@ -127,7 +127,7 @@ export const TRIAGE_CHOICES: TriageChoice[] = [
     emoji: '🐍',
     label: ['Bite or sting', 'काटना या डंक'],
     keywords: ['bite', 'bitten', 'sting', 'stung', 'snake', 'dog', 'bee', 'wasp', 'काटा', 'डंक', 'साँप', 'कुत्ते'],
-    base: { severity: 'urgent', guideIds: ['animal-bite'], reason: ['Animal bites can carry infection and rabies. Wash the bite with soap and water and see a doctor today.', 'जानवर के काटने से संक्रमण और रेबीज़ हो सकता है। साबुन और पानी से धोएँ और आज डॉक्टर को दिखाएँ।'] },
+    base: { severity: 'urgent', guideIds: ['animal-bite'], reason: ['Wash the bite or sting with soap and water. Animal bites can carry infection and rabies, so see a doctor today.', 'काटने या डंक को साबुन और पानी से धोएँ। जानवर के काटने से संक्रमण और रेबीज़ हो सकता है, इसलिए आज डॉक्टर को दिखाएँ।'] },
     questions: [
       {
         id: 'bite-snake',
@@ -198,8 +198,13 @@ export const TRIAGE_CHOICES: TriageChoice[] = [
       },
       {
         id: 'eye-chem',
-        ask: ['Is it a chemical splash, or has vision been lost?', 'क्या कोई रसायन पड़ा है, या दिखना बंद हुआ है?'],
+        ask: ['Is it a chemical splash in the eye?', 'क्या आँख में किसी रसायन के छींटे पड़े हैं?'],
         yes: { severity: 'emergency', guideIds: ['eye-injury'], reason: ['Rinse with clean water for 15 minutes right away. Call 112.', 'तुरंत 15 मिनट साफ़ पानी से धोएँ। 112 पर कॉल करें।'] },
+      },
+      {
+        id: 'eye-vision',
+        ask: ['Has the person suddenly lost sight, or is the vision going dark?', 'क्या अचानक दिखना बंद हुआ है, या नज़र धुंधली हो रही है?'],
+        yes: { severity: 'emergency', guideIds: [], reason: ['Sudden loss of sight needs emergency care now. Call 112 and do not rub the eye.', 'अचानक दिखना बंद होना तुरंत इलाज की ज़रूरत है। अभी 112 पर कॉल करें और आँख न रगड़ें।'] },
       },
       {
         id: 'eye-head',
@@ -213,8 +218,13 @@ export const TRIAGE_CHOICES: TriageChoice[] = [
     emoji: '😮‍💨',
     label: ['Choking or breathing', 'गला घुटना या साँस की दिक़्क़त'],
     keywords: ['choking', 'choke', 'breathing', 'breath', 'gasping', 'गला', 'साँस', 'दम'],
-    base: { severity: 'emergency', guideIds: ['choking-adult'], reason: ['Trouble breathing is an emergency. Call 112 now.', 'साँस लेने में दिक़्क़त आपात स्थिति है। अभी 112 पर कॉल करें।'] },
+    base: { severity: 'emergency', guideIds: [], reason: ['Trouble breathing is an emergency. Call 112 now and stay with them.', 'साँस लेने में दिक़्क़त आपात स्थिति है। अभी 112 पर कॉल करें और उनके पास रहें।'] },
     questions: [
+      {
+        id: 'breath-choking',
+        ask: ['Is something stuck in the throat, and can they not cough, speak or breathe?', 'क्या गले में कुछ अटका है, और वे खाँस, बोल या साँस नहीं ले पा रहे?'],
+        yes: { severity: 'emergency', guideIds: ['choking-adult'], reason: ['Give first aid for choking as the guide shows, and call 112 now.', 'गाइड में दिए तरीक़े से गले में अटकने का प्राथमिक उपचार करें, और अभी 112 पर कॉल करें।'] },
+      },
       {
         id: 'breath-unconscious',
         ask: ['Are they unconscious, or not breathing normally?', 'क्या वे बेहोश हैं, या ठीक से साँस नहीं ले रहे?'],
@@ -222,8 +232,8 @@ export const TRIAGE_CHOICES: TriageChoice[] = [
       },
       {
         id: 'breath-baby',
-        ask: ['Is the person a baby or a small child?', 'क्या व्यक्ति शिशु या छोटा बच्चा है?'],
-        yes: { severity: 'emergency', guideIds: ['choking-infant'], reason: ['Use the infant method for choking. Do not use belly thrusts on a baby.', 'शिशु के गले में अटकने पर शिशु वाला तरीक़ा अपनाएँ। शिशु के पेट पर झटके न दें।'] },
+        ask: ['Is the person a baby (under one year old)?', 'क्या व्यक्ति एक साल से छोटा शिशु है?'],
+        yes: { severity: 'emergency', guideIds: ['choking-infant'], reason: ['If a baby is choking, use the infant method. Do not use belly thrusts on a baby. Call 112.', 'अगर शिशु के गले में अटका है तो शिशु वाला तरीक़ा अपनाएँ। शिशु के पेट पर झटके न दें। 112 पर कॉल करें।'] },
       },
       {
         id: 'breath-smoke',
@@ -247,7 +257,7 @@ export const TRIAGE_CHOICES: TriageChoice[] = [
       {
         id: 'unsure-severe',
         ask: ['Is there heavy bleeding, trouble breathing, or severe pain?', 'क्या खून बहुत बह रहा है, साँस में दिक़्क़त है, या तेज़ दर्द है?'],
-        yes: { severity: 'emergency', guideIds: ['severe-bleeding'], reason: ['Call 112 now and follow the steps for the main problem.', 'अभी 112 पर कॉल करें और मुख्य समस्या के लिए बताए गए कदम उठाएँ।'] },
+        yes: { severity: 'emergency', guideIds: [], reason: ['Call 112 now and keep watching their breathing.', 'अभी 112 पर कॉल करें और उनकी साँस देखते रहें।'] },
       },
     ],
   },

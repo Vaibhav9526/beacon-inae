@@ -5,6 +5,7 @@ import { ScrollView, View } from 'react-native';
 import { useT } from '../i18n';
 import { useAlerts } from '../services/alerts';
 import { type NewsCard, cloud, cloudConfigured } from '../services/cloud';
+import { useHubFeed } from '../services/hubFeed';
 import { getFix, lastKnownFix } from '../services/location';
 import { useWeather } from '../services/weather';
 import { forecastNotes } from '../services/weatherLogic';
@@ -26,6 +27,12 @@ const RANK: Record<string, number> = { severe: 0, warning: 1, watch: 2, info: 3 
 const WX_TINT: Record<string, 'pink' | 'peach' | 'blue' | 'yellow'> = { severe: 'pink', warning: 'peach', watch: 'blue', info: 'yellow' };
 
 /** a forecast note shown in the strip */
+/** 'Wed' from a YYYY-MM-DD forecast day; empty when the date cannot be read. */
+function weekdayShort(day: string): string {
+  const d = new Date(day + 'T12:00:00');
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-US', { weekday: 'short' });
+}
+
 type WxCard = Omit<NewsCard, 'kind'> & { kind: 'weather'; day: string | null };
 type Item = NewsCard | WxCard;
 
@@ -44,6 +51,7 @@ const short = (text: string, words = 14) => {
 /** Alerts on the phone, the server's news feed and forecast warnings, merged, de-duplicated and ranked by severity. */
 function useNearbyCards() {
   const alerts = useAlerts((s) => s.items);
+  const hubItems = useHubFeed((s) => s.items);
   const { forecast, loading: weatherLoading } = useWeather();
   const [news, setNews] = useState<NewsCard[]>([]);
   const [loading, setLoading] = useState(false);
@@ -99,8 +107,24 @@ function useNearbyCards() {
     [forecast],
   );
 
+  // hub feed items from the desktop: source is the agent, badge marks where it came from
+  const fromHub = useMemo<NewsCard[]>(
+    () =>
+      hubItems.map((it) => ({
+        id: 'hub-' + it.id,
+        kind: it.severity === 'warning' || it.severity === 'severe' ? 'alert' : 'report',
+        title: it.title,
+        summary: it.body,
+        severity: it.severity,
+        source: it.agentName,
+        ts: it.at,
+        badge: 'Hub',
+      })),
+    [hubItems],
+  );
+
   const seen = new Set<string>();
-  const cards: Item[] = [...fromAlerts, ...news, ...fromWeather]
+  const cards: Item[] = [...fromHub, ...fromAlerts, ...news, ...fromWeather]
     .filter((c) => {
       if (seen.has(c.id)) return false;
       seen.add(c.id);
@@ -147,11 +171,11 @@ export function TrendingStrip() {
             const isWx = c.kind === 'weather';
             const tint = isWx ? WX_TINT[c.severity ?? 'info'] ?? 'yellow' : tintOf(c.severity);
             const label = isWx && (c.severity === 'info' || c.severity === 'watch') ? 'WEATHER' : c.severity ? t(c.severity as 'severe').toUpperCase() : t('tabNews').toUpperCase();
-            const age = isWx && c.day ? c.day.slice(0, 3) : ago(c.ts);
+            const age = isWx && c.day ? weekdayShort(c.day) : ago(c.ts);
             return (
               <Press
                 key={c.id}
-                onPress={() => router.push((isWx ? '/weather' : '/adult/news') as never)}
+                onPress={() => router.navigate((isWx ? '/weather' : '/news') as never)}
                 accessibilityRole="button"
                 accessibilityLabel={c.title}
                 style={{ width: 250 }}
@@ -169,9 +193,12 @@ export function TrendingStrip() {
                   <Txt size={12.5} color={INK} numberOfLines={1}>
                     {short(c.summary)}
                   </Txt>
-                  <Txt size={11} color={INK} numberOfLines={1} style={{ opacity: 0.75, marginTop: 'auto' }}>
-                    {c.source}
-                  </Txt>
+                  <Row style={{ gap: 6, marginTop: 'auto' }}>
+                    <Txt size={11} color={INK} numberOfLines={1} style={{ opacity: 0.75, flexShrink: 1 }}>
+                      {c.source}
+                    </Txt>
+                    {c.badge ? <Badge soft label={c.badge} color={INK} /> : null}
+                  </Row>
                 </View>
               </Press>
             );
@@ -203,12 +230,12 @@ export function TrendingList() {
           const isWx = c.kind === 'weather';
           const tint = isWx ? WX_TINT[c.severity ?? 'info'] ?? 'yellow' : tintOf(c.severity);
           const icon: IconName = isWx ? 'cloud' : c.kind === 'alert' ? 'alert' : 'news';
-          const age = isWx && c.day ? c.day.slice(0, 3) : ago(c.ts);
+          const age = isWx && c.day ? weekdayShort(c.day) : ago(c.ts);
           return (
             <View key={c.id}>
               {i > 0 ? <View style={{ height: 1, backgroundColor: p.border }} /> : null}
               <Press
-                onPress={() => router.push((isWx ? '/weather' : '/adult/news') as never)}
+                onPress={() => router.navigate((isWx ? '/weather' : '/news') as never)}
                 accessibilityRole="button"
                 accessibilityLabel={c.title}
                 style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 }}

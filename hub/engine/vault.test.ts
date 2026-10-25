@@ -17,8 +17,8 @@ const GROUPS = ['disaster', 'help', 'medicine', 'child', 'prepare'];
 const LEVELS = ['starter', 'guardian', 'expert'];
 const NEEDS = ['health', 'telegram', 'phone'];
 
-test('there are 18 vault agents', () => {
-  assert.equal(TEMPLATES.length, 18);
+test('there are 26 vault agents', () => {
+  assert.equal(TEMPLATES.length, 26);
 });
 
 test('every template has non-empty vault text', () => {
@@ -28,7 +28,13 @@ test('every template has non-empty vault text', () => {
     assert.ok(t.who && t.who.trim().length > 0, `${t.id} who`);
     assert.ok(Array.isArray(t.watches) && t.watches.length > 0, `${t.id} watches`);
     assert.ok(Array.isArray(t.sources) && t.sources.length > 0, `${t.id} sources`);
+    assert.ok(t.level, `${t.id} level`);
+    assert.ok(Array.isArray(t.needs) && t.needs.length > 0, `${t.id} needs`);
   }
+});
+
+test('every template has a genre', () => {
+  for (const t of TEMPLATES) assert.ok(t.agent.genre, `${t.id} genre`);
 });
 
 test('about is two sentences and examples have no emojis', () => {
@@ -53,10 +59,11 @@ test('template ids are unique', () => {
   assert.equal(new Set(ids).size, ids.length);
 });
 
-test('every template has 1 to 3 rules with known metrics', () => {
+test('every template has 1 to 3 rules with known metrics (news only may have none)', () => {
   for (const t of TEMPLATES) {
     const rules = t.agent.rules;
-    assert.ok(rules.length >= 1 && rules.length <= 3, `${t.id} rule count ${rules.length}`);
+    const min = t.agent.genre === 'news' ? 0 : 1;
+    assert.ok(rules.length >= min && rules.length <= 3, `${t.id} rule count ${rules.length}`);
     for (const r of rules) {
       assert.ok(r.when.conditions.length > 0, `${t.id}/${r.id} has no conditions`);
       for (const c of r.when.conditions) {

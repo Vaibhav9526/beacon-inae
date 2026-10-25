@@ -1,0 +1,28 @@
+# Render Blueprint for the Beacon relay server (see docs/deploy-hosting.md).
+# Needs a PAID instance: persistent disks are not available on free instances.
+# Not verified against a live Render sync. Field names come from render.com/docs/blueprint-spec;
+# the envVars key/value keys, the disk nesting and NODE_VERSION were not shown in the docs text read here.
+services:
+  - type: web
+    name: beacon-server
+    runtime: node
+    rootDir: server
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /healthz
+    # plan: set a paid plan in the Blueprint or dashboard (disks need one); no plan name is pinned here.
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: BEACON_DATA
+        value: /data
+      - key: MOD_TOKEN
+        generateValue: true
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1

@@ -8,7 +8,7 @@ const ids = new Set(ALL_GUIDES.map((g) => g.id));
 
 test('every choice has questions (except not sure), and every guide id exists', () => {
   for (const c of TRIAGE_CHOICES) {
-    if (c.id !== 'unsure') assert.ok(c.questions.length >= 1 && c.questions.length <= 3, `${c.id} question count`);
+    if (c.id !== 'unsure') assert.ok(c.questions.length >= 1 && c.questions.length <= 4, `${c.id} question count`);
     for (const g of [...c.base.guideIds, ...c.questions.flatMap((q) => q.yes?.guideIds ?? [])]) {
       assert.ok(ids.has(g), `${c.id} points to unknown guide ${g}`);
     }

@@ -7,13 +7,15 @@ import { useLang, useT } from '../i18n';
 import { cloud, cloudConfigured } from '../services/cloud';
 import { type VoiceRole, useEleven } from '../services/elevenlabs';
 import { speak } from '../services/speech';
+import { setLifeboat } from '../services/lifeboat';
 import { useMesh } from '../services/mesh';
 import { visionStatus } from '../services/vision';
 import { voiceStatus, voiceSupported } from '../services/voice';
+import { useLifeboat } from '../state/lifeboat';
+import { useQuakeSettings } from '../state/quakeSettings';
 import { useSettings } from '../state/settings';
 import { radius } from '../theme';
 import { Icon, type IconName } from './Icon';
-import { GoogleKeyCard } from './GoogleKeyCard';
 import { PhotoHelperCard } from './PhotoHelperCard';
 import { Switch } from './Switch';
 import { Btn, Card, Chip, Row, Txt, type TintName } from './ui';
@@ -34,6 +36,44 @@ function Toggle({ label, value, onChange, hint }: { label: string; value: boolea
       </View>
       <Switch value={value} onValueChange={onChange} accessibilityLabel={label} />
     </Row>
+  );
+}
+
+/** Shake warning switch and its How it works link, shown in the Safety tile. */
+function QuakeRow() {
+  const lang = useLang();
+  const enabled = useQuakeSettings((x) => x.enabled);
+  const setEnabled = useQuakeSettings((x) => x.set);
+  return (
+    <View style={{ gap: 8 }}>
+      <Toggle
+        label={lang === 'hi' ? 'शेक वॉर्निंग' : 'Shake warning'}
+        value={enabled}
+        onChange={setEnabled}
+        hint={lang === 'hi' ? 'पास के फ़ोन झटके पर सहमत हों तो चेतावनी। आधिकारिक अलर्ट का विकल्प नहीं।' : 'Nearby phones agree on strong shaking and warn you. Not a substitute for official alerts.'}
+      />
+      <Row style={{ justifyContent: 'flex-end' }}>
+        <Btn size="sm" kind="secondary" label={lang === 'hi' ? 'यह कैसे काम करता है' : 'How it works'} onPress={() => router.push('/quake' as never)} />
+      </Row>
+    </View>
+  );
+}
+
+/** Lifeboat mode switch and its Open link, shown in the Safety tile. */
+function LifeboatRow() {
+  const active = useLifeboat((x) => x.active);
+  return (
+    <View style={{ gap: 8 }}>
+      <Toggle
+        label="Lifeboat mode"
+        value={active}
+        onChange={(x) => setLifeboat(x)}
+        hint="Makes the battery last longer: slower checks and no wake word. SOS and shake stay on."
+      />
+      <Row style={{ justifyContent: 'flex-end' }}>
+        <Btn size="sm" kind="secondary" label="Open" onPress={() => router.push('/lifeboat' as never)} />
+      </Row>
+    </View>
   );
 }
 
@@ -184,6 +224,8 @@ export function SettingsView() {
             onChange={(x) => s.set({ fallDetect: x })}
             hint="If a hard fall is followed by stillness, Beacon asks if you are okay and sends an SOS if you do not answer"
           />
+          <QuakeRow />
+          <LifeboatRow />
         </Tile>
       ) : null}
 
@@ -194,8 +236,6 @@ export function SettingsView() {
           <Btn size="sm" kind="secondary" icon="camera" label={lang === 'hi' ? 'फोटो जाँच खोलें' : 'Open Photo check'} onPress={() => router.push('/photo' as never)} />
         </Row>
       </View>
-
-      <GoogleKeyCard />
 
       {/* Server & data */}
       <Tile tint="green">

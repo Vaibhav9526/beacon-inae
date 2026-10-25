@@ -103,7 +103,8 @@ export interface DescribeOptions {
   onToken?: (partial: string) => void;
 }
 
-export const DEFAULT_QUESTION = 'Describe what you see in one or two short sentences. Mention any injury, wound, burn, bite, fire, smoke, flood water, damage or person in danger.';
+// Only ask for what is plainly visible. A small model guesses when pushed to find injuries, so it is told to say "unclear".
+export const DEFAULT_QUESTION = 'Describe only what you can clearly see in this photo, in one short sentence. Name the main object. If you cannot clearly tell, answer exactly: unclear.';
 
 export async function describe(ort: Ort, s: Sessions, tok: Tokenizer, rgba: Uint8Array, w: number, h: number, opts: DescribeOptions = {}): Promise<string> {
   const maxNew = opts.maxNewTokens ?? 48;

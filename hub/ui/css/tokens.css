@@ -1,0 +1,219 @@
+/* Beacon Hub design tokens.
+ * Source: docs/hub-ui-spec.md section 2 (values taken from Jargon's dark palette).
+ * Dark is the default. The light palette is the spec's derive rule, not Jargon's values.
+ *
+ * Theme switching:
+ *   :root                       dark (default)
+ *   [data-theme="dark"]         dark, explicit
+ *   [data-theme="light"]        light, explicit
+ *   [data-theme="system"]       follows prefers-color-scheme
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* Fonts */
+  --font-sans: "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
+
+  /* Type scale: six sizes only */
+  --text-sm: 12px;  --lh-sm: 16px;   /* captions, section names, status, badges */
+  --text-md: 13px;  --lh-md: 18px;   /* previews, search, tabs, descriptions */
+  --text-lg: 14px;  --lh-lg: 20px;   /* row names, button default, body */
+  --text-xl: 16px;  --lh-xl: 22px;   /* panel titles, agent name in header */
+  --text-2xl: 18px; --lh-2xl: 24px;  /* modal titles, empty-state titles */
+  --text-3xl: 24px; --lh-3xl: 30px;  /* rare: onboarding */
+
+  /* Radii */
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-card: 14px;
+  --r-xl: 20px;
+  --r-modal: 30px;
+  --r-group: 16px;
+  --r-pill: 999px;
+
+  /* Control heights */
+  --h-xs: 24px;
+  --h-sm: 28px;
+  --h-md: 32px;
+  --h-lg: 36px;
+  --h-xl: 40px;
+
+  --left-header-height: 38px;
+
+  /* Motion */
+  --dur-hover: 0ms;
+  --dur-fast: 120ms;
+  --dur-normal: 160ms;
+  --dur-slow: 200ms;
+  --dur-overlay: 240ms;
+  --dur-tab: 250ms;
+  --dur-tab-content: 150ms;
+  --dur-panel-open: 400ms;
+  --dur-panel-close: 350ms;
+  --dur-toast-in: 340ms;
+  --dur-toast-out: 220ms;
+  --dur-resize: 300ms;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-panel: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-inout: cubic-bezier(0.77, 0, 0.175, 1);
+
+  /* Z layers */
+  --z-dropdown: 40;
+  --z-popover: 60;
+  --z-dialog: 100;
+  --z-toast: 120;
+  --z-host: 160;
+  --z-tooltip: 240;
+
+  /* Surfaces */
+  --bg-frame: #0d0d0d;
+  --bg-canvas: #1a1a1a;
+  --bg-sidebar: #1a1a1a;
+  --bg-surface: #212121;
+  --bg-raised: #242424;
+  --bg-control: #212121;
+  --bg-control-hover: #242424;
+  --bg-control-active: #2a2a2a;
+  --bg-grouped: #212121;
+  --border-grouped: #333335;
+  --bg-tabs: #212121;
+  --bg-tabs-pill: #2a2a2a;
+  --bg-tooltip: #2a2a2a;
+  --bg-overlay: rgba(0, 0, 0, 0.10);
+
+  /* Lines and states */
+  --border: rgba(255, 255, 255, 0.035);
+  --border-strong: rgba(255, 255, 255, 0.045);
+  --dialog-ring: rgba(255, 255, 255, 0.10);
+  --hover: rgba(255, 255, 255, 0.06);
+  --ring-switch: rgba(255, 255, 255, 0.045);
+
+  /* Text */
+  --text: #ffffff;
+  --text-2: #dcdcdc;
+  --text-muted: #979797;
+  --text-dim: #6a6a6a;
+  --text-placeholder: #6a6a6a;
+  --text-readable: rgba(255, 255, 255, 0.52);
+  --text-on-light: #141414;
+
+  /* Primary (light) button */
+  --fill-primary: #f0f0f0;
+  --fill-primary-hover: rgba(240, 240, 240, 0.82);
+  --fill-primary-text: #141414;
+
+  /* Accent */
+  --accent: #007cf7;
+  --accent-hover: #1f8fff;
+  --accent-text: #42a0ff;
+  --accent-soft: rgba(0, 124, 247, 0.16);
+  --accent-strong: rgba(0, 124, 247, 0.34);
+  --focus-border: rgba(0, 124, 247, 0.72);
+  --focus-ring: 0 0 0 3px rgba(0, 124, 247, 0.16);
+
+  /* Status */
+  --success: #31cf76;
+  --success-soft: rgba(49, 207, 118, 0.12);
+  --warning: #ff9412;
+  --warning-soft: rgba(255, 148, 18, 0.12);
+  --danger: #fd2f3b;
+  --danger-text: #ff6069;
+  --danger-soft: rgba(253, 47, 59, 0.16);
+  --danger-soft-hover: rgba(253, 47, 59, 0.28);
+  --danger-border: rgba(253, 47, 59, 0.50);
+  --unread: #74b9ff;
+  --unread-text: #07131f;
+  --badge-new: #ff1e5e;
+  --teal: #6bc7d9;
+  --violet: #d6adf2;
+
+  /* Shadows */
+  --shadow-raised: 0 12px 32px rgba(0, 0, 0, 0.10);
+  --shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.48);
+  --ring-edge: 0 0 0 1px rgba(255, 255, 255, 0.035);
+}
+
+/* Light palette: canvas, surface and border from the spec; the rest derived the same way. */
+:root[data-theme="light"],
+:root[data-theme="system"] {
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: light) {
+  :root[data-theme="system"] {
+    --bg-frame: #e6e6e9;
+    --bg-canvas: #f7f7f8;
+    --bg-sidebar: #f7f7f8;
+    --bg-surface: #ffffff;
+    --bg-raised: #ffffff;
+    --bg-control: #ffffff;
+    --bg-control-hover: #f0f0f2;
+    --bg-control-active: #e6e6e9;
+    --bg-grouped: #ffffff;
+    --border-grouped: #e2e2e6;
+    --bg-tabs: #ededf0;
+    --bg-tabs-pill: #ffffff;
+    --bg-tooltip: #141414;
+    --bg-overlay: rgba(20, 20, 20, 0.12);
+    --border: rgba(20, 20, 20, 0.10);
+    --border-strong: rgba(20, 20, 20, 0.14);
+    --dialog-ring: rgba(20, 20, 20, 0.12);
+    --hover: rgba(20, 20, 20, 0.06);
+    --ring-switch: rgba(20, 20, 20, 0.14);
+    --text: #141414;
+    --text-2: #3a3a3a;
+    --text-muted: rgba(20, 20, 20, 0.52);
+    --text-dim: #8a8a8a;
+    --text-placeholder: #8a8a8a;
+    --text-readable: rgba(20, 20, 20, 0.52);
+    --text-on-light: #ffffff;
+    --fill-primary: #141414;
+    --fill-primary-hover: rgba(20, 20, 20, 0.82);
+    --fill-primary-text: #ffffff;
+    --accent-text: #0a6fd6;
+    --shadow-raised: 0 12px 32px rgba(20, 20, 20, 0.12);
+    --shadow-overlay: 0 12px 32px rgba(20, 20, 20, 0.22);
+    --ring-edge: 0 0 0 1px rgba(20, 20, 20, 0.10);
+  }
+}
+
+:root[data-theme="light"] {
+  --bg-frame: #e6e6e9;
+  --bg-canvas: #f7f7f8;
+  --bg-sidebar: #f7f7f8;
+  --bg-surface: #ffffff;
+  --bg-raised: #ffffff;
+  --bg-control: #ffffff;
+  --bg-control-hover: #f0f0f2;
+  --bg-control-active: #e6e6e9;
+  --bg-grouped: #ffffff;
+  --border-grouped: #e2e2e6;
+  --bg-tabs: #ededf0;
+  --bg-tabs-pill: #ffffff;
+  --bg-tooltip: #141414;
+  --bg-overlay: rgba(20, 20, 20, 0.12);
+  --border: rgba(20, 20, 20, 0.10);
+  --border-strong: rgba(20, 20, 20, 0.14);
+  --dialog-ring: rgba(20, 20, 20, 0.12);
+  --hover: rgba(20, 20, 20, 0.06);
+  --ring-switch: rgba(20, 20, 20, 0.14);
+  --text: #141414;
+  --text-2: #3a3a3a;
+  --text-muted: rgba(20, 20, 20, 0.52);
+  --text-dim: #8a8a8a;
+  --text-placeholder: #8a8a8a;
+  --text-readable: rgba(20, 20, 20, 0.52);
+  --text-on-light: #ffffff;
+  --fill-primary: #141414;
+  --fill-primary-hover: rgba(20, 20, 20, 0.82);
+  --fill-primary-text: #ffffff;
+  --accent-text: #0a6fd6;
+  --shadow-raised: 0 12px 32px rgba(20, 20, 20, 0.12);
+  --shadow-overlay: 0 12px 32px rgba(20, 20, 20, 0.22);
+  --ring-edge: 0 0 0 1px rgba(20, 20, 20, 0.10);
+}

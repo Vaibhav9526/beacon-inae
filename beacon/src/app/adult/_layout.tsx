@@ -30,8 +30,6 @@ export default function AdultLayout() {
         <Tabs.Screen name="map" />
         <Tabs.Screen name="aid" />
         <Tabs.Screen name="community" />
-        <Tabs.Screen name="news" options={{ href: null }} />
-        <Tabs.Screen name="more" options={{ href: null }} />
       </Tabs>
     </ThemeProvider>
   );

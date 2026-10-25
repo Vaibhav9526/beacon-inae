@@ -98,15 +98,18 @@ export class Router {
 
 const isRes = (o: unknown): o is Res => !!o && typeof o === 'object' && 'status' in o && 'body' in o;
 
+/** Headers on every response: stop browsers sniffing types. JSON answers are never cached (they hold personal data). */
+const COMMON = { 'x-content-type-options': 'nosniff' };
+
 function send(res: ServerResponse, r: Res, base: Record<string, string>) {
   if (Buffer.isBuffer(r.body)) {
-    res.writeHead(r.status, { ...base, ...r.headers });
+    res.writeHead(r.status, { ...base, ...COMMON, ...r.headers });
     res.end(r.body);
   } else if (typeof r.body === 'string' && r.headers?.['content-type']) {
-    res.writeHead(r.status, { ...base, ...r.headers });
+    res.writeHead(r.status, { ...base, ...COMMON, ...r.headers });
     res.end(r.body);
   } else {
-    res.writeHead(r.status, { ...base, 'content-type': 'application/json', ...r.headers });
+    res.writeHead(r.status, { ...base, ...COMMON, 'content-type': 'application/json', 'cache-control': 'no-store', ...r.headers });
     res.end(JSON.stringify(r.body));
   }
 }

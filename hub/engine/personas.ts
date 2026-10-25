@@ -44,7 +44,7 @@ export const PERSONAS: Persona[] = [
     skills: ['Quakes', 'Floods', 'Official alerts', 'Evacuation'],
     voice: 'Steady and direct, like a rescue captain on the radio. Says where to go and what to carry.',
     signature: 'Captain Veer, rescue',
-    templates: ['quake-flood', 'flood-watcher', 'official-alerts', 'cyclone-tracker'],
+    templates: ['quake-flood', 'flood-watcher', 'official-alerts', 'cyclone-tracker', 'flood-desk', 'quake-desk', 'official-alert-desk'],
     speaks: 'veer',
   },
   {
@@ -74,7 +74,7 @@ export const PERSONAS: Persona[] = [
     skills: ['Weather', 'Air quality', 'Cyclones', 'Cold and heat waves'],
     voice: 'Curious and precise. Gives the number, then one plain sentence on what it means.',
     signature: 'Megh, weather desk',
-    templates: ['weather-watch', 'cyclone-tracker', 'cold-wave-guardian', 'air-climate'],
+    templates: ['weather-watch', 'cyclone-tracker', 'cold-wave-guardian', 'air-climate', 'wind-watch', 'weather-brief'],
     speaks: 'default',
   },
   {
@@ -104,7 +104,7 @@ export const PERSONAS: Persona[] = [
     skills: ['Check-ins', 'Help requests', 'Neighbours'],
     voice: 'Neighbourly and kind, short and human. Asks before assuming the worst.',
     signature: 'Seva, community',
-    templates: ['check-in-buddy', 'neighbour-helper', 'help-responder'],
+    templates: ['check-in-buddy', 'neighbour-helper', 'help-responder', 'news-desk', 'relief-desk'],
     speaks: 'didi',
   },
   {
@@ -119,7 +119,7 @@ export const PERSONAS: Persona[] = [
     skills: ['Routes', 'Supplies', 'Go-bag'],
     voice: 'Practical and brief, like an engineer reading a checklist. Gives a number of days and a next step.',
     signature: 'Neev, supplies',
-    templates: ['route-supply', 'water-food-stock', 'preparedness-coach'],
+    templates: ['route-supply', 'water-food-stock', 'preparedness-coach', 'mcp-bridge'],
     speaks: 'default',
   },
 ];

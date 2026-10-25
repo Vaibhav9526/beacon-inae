@@ -1,3 +1,4 @@
+import { pollMs } from './lifeboat';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Location from 'expo-location';
 
@@ -72,7 +73,7 @@ export async function lastKnownFix(): Promise<Fix | null> {
 
 export async function watchFix(cb: (f: Fix) => void): Promise<() => void> {
   if (!(await ensureLocationPermission())) return () => {};
-  const sub = await Location.watchPositionAsync({ accuracy: Location.Accuracy.Balanced, distanceInterval: 25, timeInterval: 20_000 }, (p) => {
+  const sub = await Location.watchPositionAsync({ accuracy: Location.Accuracy.Balanced, distanceInterval: 25, timeInterval: pollMs(20_000) }, (p) => {
     const f = { lat: p.coords.latitude, lon: p.coords.longitude, accuracy: p.coords.accuracy ?? undefined, ts: p.timestamp };
     remember(f);
     cb(f);

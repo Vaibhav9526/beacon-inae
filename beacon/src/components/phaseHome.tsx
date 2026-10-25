@@ -23,7 +23,7 @@ export interface PhaseBanner {
   onPress?: () => void;
 }
 
-const go = (path: string) => () => router.push(path as never);
+const go = (path: string) => () => router.navigate(path as never);
 
 /**
  * What the adult Home shows for the current phase: one banner, a row of quick actions and the "I am safe" text action.
@@ -42,7 +42,7 @@ export function usePhaseHome(): { phase: Phase; banner: PhaseBanner; quick: Quic
     void sendSafeNow();
   };
   const hazard = ph.lead ? hazardIdFor(ph.lead.title) : null;
-  const guide = hazard ? go(`/disaster/${hazard}`) : go('/adult/news');
+  const guide = hazard ? go(`/disaster/${hazard}`) : go('/news');
 
   const safe = { label: t('iAmSafe'), onPress: safeNow };
   const call = { id: 'call112', label: t('call112'), icon: 'phone' as const, onPress: () => void call112() };

@@ -1,9 +1,16 @@
 import { randomUUID } from 'node:crypto';
-import type { Agent, Rule, Template } from './types.ts';
+import type { Agent, NodeKind, NodeSpec, Rule, Template } from './types.ts';
 
 const DELHI = { name: 'Delhi', lat: 28.61, lon: 77.21, state: 'delhi' };
 
+const RSS_NATIONAL = 'https://www.thehindu.com/news/national/feeder/default.rss';
+const RSS_TOP = 'https://timesofindia.indiatimes.com/rssfeedstopstories.cms';
+const NDMA_SACHET = 'https://sachet.ndma.gov.in/cap_public_website/FetchXMLFile?';
+
 const rule = (r: Rule): Rule => r;
+const node = (id: string, kind: NodeKind, label: string, config: Record<string, unknown> = {}, enabled = true): NodeSpec => ({
+  id, kind, label, config, enabled,
+});
 
 /** The Agent Vault: ready agents, each one explained. Every template fills in the vault details. */
 export const TEMPLATES: Template[] = [
@@ -23,6 +30,7 @@ export const TEMPLATES: Template[] = [
     agent: {
       name: 'Weather Watch',
       avatar: 'sentinel',
+      genre: 'weather',
       enabled: true,
       watch: ['weather'],
       place: { ...DELHI },
@@ -64,6 +72,7 @@ export const TEMPLATES: Template[] = [
     agent: {
       name: 'Air & Climate',
       avatar: 'scout',
+      genre: 'weather',
       enabled: true,
       watch: ['aqi', 'weather'],
       place: { ...DELHI },
@@ -105,6 +114,7 @@ export const TEMPLATES: Template[] = [
     agent: {
       name: 'Quake & Flood',
       avatar: 'rescue',
+      genre: 'quake',
       enabled: true,
       watch: ['quake', 'weather'],
       place: { ...DELHI },
@@ -154,6 +164,7 @@ export const TEMPLATES: Template[] = [
     agent: {
       name: 'Official Alerts',
       avatar: 'sentinel',
+      genre: 'custom',
       enabled: true,
       watch: ['alerts'],
       place: { ...DELHI },
@@ -195,6 +206,7 @@ export const TEMPLATES: Template[] = [
     agent: {
       name: 'Family Health',
       avatar: 'medic',
+      genre: 'health',
       enabled: true,
       watch: ['health'],
       place: { ...DELHI },
@@ -245,6 +257,7 @@ export const TEMPLATES: Template[] = [
     agent: {
       name: 'Heatwave Guardian',
       avatar: 'guardian',
+      genre: 'weather',
       enabled: true,
       watch: ['weather', 'health'],
       place: { ...DELHI },
@@ -293,6 +306,7 @@ export const TEMPLATES: Template[] = [
     agent: {
       name: 'Medicine Reminder',
       avatar: 'medic',
+      genre: 'health',
       enabled: true,
       watch: ['schedule', 'supply'],
       place: { ...DELHI },
@@ -335,6 +349,7 @@ export const TEMPLATES: Template[] = [
     agent: {
       name: 'Child Play Guardian',
       avatar: 'guardian',
+      genre: 'weather',
       enabled: true,
       watch: ['weather', 'aqi'],
       place: { ...DELHI },
@@ -384,6 +399,7 @@ export const TEMPLATES: Template[] = [
     agent: {
       name: 'Route & Supply',
       avatar: 'rescue',
+      genre: 'supply',
       enabled: true,
       watch: ['supply', 'weather'],
       place: { ...DELHI },
@@ -433,6 +449,7 @@ export const TEMPLATES: Template[] = [
     agent: {
       name: 'Help Responder',
       avatar: 'medic',
+      genre: 'community',
       enabled: true,
       watch: ['alerts', 'quake'],
       place: { ...DELHI },
@@ -474,6 +491,7 @@ export const TEMPLATES: Template[] = [
     agent: {
       name: 'Preparedness Coach',
       avatar: 'coach',
+      genre: 'supply',
       enabled: true,
       watch: ['supply', 'weather'],
       place: { ...DELHI },
@@ -523,6 +541,7 @@ export const TEMPLATES: Template[] = [
     agent: {
       name: 'Flood Watcher',
       avatar: 'rescue',
+      genre: 'flood',
       enabled: true,
       watch: ['weather'],
       place: { ...DELHI },
@@ -564,6 +583,7 @@ export const TEMPLATES: Template[] = [
     agent: {
       name: 'Cyclone Tracker',
       avatar: 'sentinel',
+      genre: 'wind',
       enabled: true,
       watch: ['weather', 'alerts'],
       place: { ...DELHI },
@@ -605,6 +625,7 @@ export const TEMPLATES: Template[] = [
     agent: {
       name: 'Cold Wave Guardian',
       avatar: 'guardian',
+      genre: 'weather',
       enabled: true,
       watch: ['weather', 'health'],
       place: { ...DELHI },
@@ -655,6 +676,7 @@ export const TEMPLATES: Template[] = [
     agent: {
       name: 'Air Mask Advisor',
       avatar: 'coach',
+      genre: 'weather',
       enabled: true,
       watch: ['aqi'],
       place: { ...DELHI },
@@ -704,6 +726,7 @@ export const TEMPLATES: Template[] = [
     agent: {
       name: 'Water & Food Stock Keeper',
       avatar: 'coach',
+      genre: 'supply',
       enabled: true,
       watch: ['supply'],
       place: { ...DELHI },
@@ -753,6 +776,7 @@ export const TEMPLATES: Template[] = [
     agent: {
       name: 'Check-In Buddy',
       avatar: 'scout',
+      genre: 'health',
       enabled: true,
       watch: ['health', 'schedule'],
       place: { ...DELHI },
@@ -795,6 +819,7 @@ export const TEMPLATES: Template[] = [
     agent: {
       name: 'Neighbour Helper',
       avatar: 'rescue',
+      genre: 'community',
       enabled: true,
       watch: ['alerts', 'quake'],
       place: { ...DELHI },
@@ -820,6 +845,311 @@ export const TEMPLATES: Template[] = [
       ],
     },
   },
+  // ---- genre agents: each one extracts one kind of data and passes it on ----
+  {
+    id: 'news-desk',
+    name: 'News Desk',
+    summary: 'Collects national headlines and keeps the ones about floods, storms and quakes.',
+    group: 'prepare',
+    avatar: 'scout',
+    about: 'Reads two free national news feeds and keeps only the headlines about floods, cyclones, earthquakes, landslides and heatwaves. It removes repeats and shortens each story, so the family gets the important news without the noise.',
+    watches: ['Disaster headlines in national news', 'Repeated stories'],
+    sources: ['The Hindu (RSS)', 'Times of India (RSS)'],
+    example: 'Headline: Landslide closes highway near Shimla. Read the story before you travel.',
+    who: 'Families who want the news without the noise, and the person who shares it in the group',
+    level: 'starter',
+    needs: ['phone'],
+    agent: {
+      name: 'News Desk',
+      avatar: 'scout',
+      genre: 'news',
+      enabled: true,
+      watch: [],
+      place: { ...DELHI },
+      everyMin: 60,
+      channels: ['beacon'],
+      rules: [],
+      pipeline: [
+        node('n-news-1', 'rss', 'The Hindu, national news', { url: RSS_NATIONAL, limit: 8 }),
+        node('n-news-2', 'rss', 'Times of India, top stories', { url: RSS_TOP, limit: 8 }),
+        node('n-news-3', 'keyword-filter', 'Disaster words only', {
+          mode: 'any',
+          words: ['flood', 'cyclone', 'earthquake', 'landslide', 'heatwave', 'rain alert'],
+        }),
+        node('n-news-4', 'dedupe', 'Remove repeats'),
+        node('n-news-5', 'summarize', 'Short summary'),
+      ],
+    },
+  },
+  {
+    id: 'wind-watch',
+    name: 'Wind Watch',
+    summary: 'Warns when wind gusts at home reach a level that can topple branches and signs.',
+    group: 'disaster',
+    avatar: 'sentinel',
+    about: 'Checks the wind at your place every half hour and speaks up when gusts reach 40 km/h or more, which is enough to topple branches and loose signs. Early warning lets the family bring in chairs and stay clear of trees and hoardings.',
+    watches: ['Wind gusts', 'Wind speed'],
+    sources: ['Open-Meteo'],
+    example: 'Wind gusts of 46 km/h. Bring in loose items and keep clear of trees and hoardings.',
+    who: 'Homes near trees, tin roofs and hoardings, and anyone who works outdoors',
+    level: 'starter',
+    needs: ['phone'],
+    agent: {
+      name: 'Wind Watch',
+      avatar: 'sentinel',
+      genre: 'wind',
+      enabled: true,
+      watch: ['weather'],
+      place: { ...DELHI },
+      everyMin: 30,
+      channels: ['telegram', 'beacon'],
+      rules: [
+        rule({
+          id: 'wind-gusts-40',
+          name: 'Gusts of 40 km/h or more',
+          when: { mode: 'all', conditions: [{ metric: 'wind_gust_kmh', op: '>=', value: 40 }] },
+          severity: 'watch',
+          message: 'Wind gusts of {wind_gust_kmh} km/h. Bring in loose items and keep clear of trees and hoardings.',
+          cooldownMin: 120,
+        }),
+      ],
+      pipeline: [
+        node('n-wind-1', 'weather', 'Wind now', { metric: 'wind' }),
+        node('n-wind-2', 'threshold', 'Gusts of 40 km/h or more', { key: 'wind_gust_kmh', op: '>=', value: 40 }),
+      ],
+    },
+  },
+  {
+    id: 'weather-brief',
+    name: 'Weather Brief',
+    summary: 'A short daily read of temperature, humidity, rain and UV for your city.',
+    group: 'prepare',
+    avatar: 'scout',
+    about: 'Gives a short, plain reading of today\'s temperature, feels-like heat, humidity, rain and UV for your city. A quick look each morning helps the family plan clothes, water and time outdoors without checking several apps.',
+    watches: ['Temperature and feels-like heat', 'Rain in the last 24 hours', 'UV index'],
+    sources: ['Open-Meteo'],
+    example: 'Delhi: 34 C, feels like 38 C, rain 0 mm in 24 hours. UV 8, carry water and a hat.',
+    who: 'Every household, and anyone planning the day outdoors',
+    level: 'starter',
+    needs: ['phone'],
+    agent: {
+      name: 'Weather Brief',
+      avatar: 'scout',
+      genre: 'weather',
+      enabled: true,
+      watch: ['weather'],
+      place: { ...DELHI },
+      everyMin: 120,
+      channels: ['beacon'],
+      rules: [
+        rule({
+          id: 'brief-heat',
+          name: 'Hot day',
+          when: { mode: 'all', conditions: [{ metric: 'heat_index_c', op: '>=', value: 38 }] },
+          severity: 'watch',
+          message: 'Heat index {heat_index_c} C. Carry water and plan outdoor work for early morning.',
+          cooldownMin: 360,
+        }),
+      ],
+      pipeline: [
+        node('n-weather-1', 'weather', 'Weather now', { metric: 'weather' }),
+      ],
+    },
+  },
+  {
+    id: 'flood-desk',
+    name: 'Flood Desk',
+    summary: 'Follows rain and flood news for low-lying homes.',
+    group: 'disaster',
+    avatar: 'rescue',
+    about: 'Follows the rain at your place and national news about floods, river levels and dam releases, and passes on what matters. Water can rise quickly after a dam release, so an early word gives the family time to move valuables and reach higher ground.',
+    watches: ['Rain right now', 'Flood, river level and dam release news'],
+    sources: ['Open-Meteo', 'The Hindu (RSS)'],
+    example: 'Heavy rain: 42 mm in 24 hours. Dam release news for the river nearby. Move valuables up and watch the water.',
+    who: 'Homes near rivers, nallahs and low ground',
+    level: 'guardian',
+    needs: ['phone'],
+    agent: {
+      name: 'Flood Desk',
+      avatar: 'rescue',
+      genre: 'flood',
+      enabled: true,
+      watch: ['weather'],
+      place: { ...DELHI },
+      everyMin: 30,
+      channels: ['telegram', 'beacon'],
+      rules: [
+        rule({
+          id: 'flood-rain-heavy',
+          name: 'Heavy rain',
+          when: { mode: 'all', conditions: [{ metric: 'rain_mm_24h', op: '>=', value: 64 }] },
+          severity: 'warning',
+          message: 'Heavy rain: {rain_mm_24h} mm in 24 hours. Watch low ground and water levels, and follow local instructions.',
+          cooldownMin: 360,
+        }),
+      ],
+      pipeline: [
+        node('n-flood-1', 'weather', 'Rain and temperature now', { metric: 'weather' }),
+        node('n-flood-2', 'rss', 'The Hindu, national news', { url: RSS_NATIONAL, limit: 8 }),
+        node('n-flood-3', 'keyword-filter', 'Flood, river level and dam release', {
+          mode: 'any',
+          words: ['flood', 'river level', 'dam release'],
+        }),
+      ],
+    },
+  },
+  {
+    id: 'quake-desk',
+    name: 'Quake Desk',
+    summary: 'Tracks earthquakes within 500 km of your city.',
+    group: 'disaster',
+    avatar: 'rescue',
+    about: 'Tracks earthquakes of magnitude 4.5 or more within 500 km of your city and reports the largest one from the last few days. After a shake, the family needs to know quickly whether to check the house and stay alert for aftershocks.',
+    watches: ['Largest quake nearby', 'Distance of the nearest quake'],
+    sources: ['USGS'],
+    example: 'M5.1 earthquake nearby, about 320 km away. Check the house for cracks and stay alert for aftershocks.',
+    who: 'Households in quake-prone areas, and families with elders or children at home',
+    level: 'guardian',
+    needs: ['phone'],
+    agent: {
+      name: 'Quake Desk',
+      avatar: 'rescue',
+      genre: 'quake',
+      enabled: true,
+      watch: ['quake'],
+      place: { ...DELHI },
+      everyMin: 30,
+      channels: ['telegram', 'beacon'],
+      rules: [
+        rule({
+          id: 'quake-nearby',
+          name: 'Earthquake nearby',
+          when: { mode: 'all', conditions: [{ metric: 'quake_max_mag', op: '>=', value: 4.5 }] },
+          severity: 'warning',
+          message: 'M{quake_max_mag} earthquake nearby. Check the house for cracks and stay alert for aftershocks.',
+          cooldownMin: 360,
+        }),
+      ],
+      pipeline: [
+        node('n-quake-1', 'quake', 'Quakes within 500 km', { radiusKm: 500 }),
+      ],
+    },
+  },
+  {
+    id: 'official-alert-desk',
+    name: 'Official Alert Desk',
+    summary: 'Passes on NDMA SACHET alerts for your state.',
+    group: 'disaster',
+    avatar: 'sentinel',
+    about: 'Reads official alerts from the national disaster portal and keeps only those that cover your state. Official instructions come from local authorities, and this desk makes sure the family sees them in one place.',
+    watches: ['Official alerts for your state', 'Alert level'],
+    sources: ['NDMA SACHET'],
+    example: 'Official alert for your state: heavy rain warning in 3 districts. Follow instructions from local authorities.',
+    who: 'Everyone in the state, and the people who check on them',
+    level: 'starter',
+    needs: ['telegram'],
+    agent: {
+      name: 'Official Alert Desk',
+      avatar: 'sentinel',
+      genre: 'custom',
+      enabled: true,
+      watch: ['alerts'],
+      place: { ...DELHI },
+      everyMin: 30,
+      channels: ['telegram', 'beacon'],
+      rules: [
+        rule({
+          id: 'official-warning',
+          name: 'Official warning',
+          when: { mode: 'all', conditions: [{ metric: 'official_alert_max', op: '>=', value: 2 }] },
+          severity: 'warning',
+          message: 'Official warning issued ({official_alert_count} active). Follow instructions from local authorities.',
+          cooldownMin: 360,
+        }),
+      ],
+      pipeline: [
+        node('n-alert-1', 'cap', 'NDMA SACHET alerts', { url: NDMA_SACHET, limit: 8, filterByPlace: true }),
+      ],
+    },
+  },
+  {
+    id: 'relief-desk',
+    name: 'Relief Desk',
+    summary: 'Watches for relief and shelter notices from a data address you choose.',
+    group: 'prepare',
+    avatar: 'coach',
+    about: 'Holds a place for relief and shelter notices from a data address you choose, and keeps only the ones that mention food, water, shelter or medicine. Until you add your own address it stays quiet, so nothing is shared that you have not chosen.',
+    watches: ['Relief and shelter notices', 'Food and water supply news'],
+    sources: ['Your own relief data address'],
+    example: 'Relief camp open at the school ground, with food and water available.',
+    who: 'Neighbourhood relief groups, and families who may need a shelter',
+    level: 'guardian',
+    needs: ['phone'],
+    agent: {
+      name: 'Relief Desk',
+      avatar: 'coach',
+      genre: 'supply',
+      enabled: true,
+      watch: ['supply'],
+      place: { ...DELHI },
+      everyMin: 120,
+      channels: ['beacon'],
+      rules: [
+        rule({
+          id: 'relief-food-low',
+          name: 'Food running low',
+          when: { mode: 'all', conditions: [{ metric: 'food_days', op: '<', value: 3 }] },
+          severity: 'warning',
+          message: 'Food: {food_days} days left. Buy essentials today.',
+          cooldownMin: 720,
+        }),
+      ],
+      pipeline: [
+        node('n-relief-1', 'http-json', 'Add your own relief or shelter data address', { url: '', path: '', kind: 'supply', limit: 8 }, false),
+        node('n-relief-2', 'keyword-filter', 'Food, water, shelter and medicine', {
+          mode: 'any',
+          words: ['food', 'water', 'shelter', 'relief', 'medicine'],
+        }),
+      ],
+    },
+  },
+  {
+    id: 'mcp-bridge',
+    name: 'MCP Bridge',
+    summary: 'Connects a tool server you choose so its results show up as items.',
+    group: 'prepare',
+    avatar: 'sentinel',
+    about: 'Lets you connect an MCP tool server on this computer, so its results can flow into the feed like any other source. Nothing runs until you pick a server and a tool, and every server is started by the person at the desktop.',
+    watches: ['Results from a tool you pick'],
+    sources: ['Your MCP tool server'],
+    example: 'Tool result: 3 new items from your chosen server. Review them in the feed.',
+    who: 'Engineers and tinkerers who run their own tool servers',
+    level: 'expert',
+    needs: ['phone'],
+    agent: {
+      name: 'MCP Bridge',
+      avatar: 'sentinel',
+      genre: 'custom',
+      enabled: true,
+      watch: [],
+      place: { ...DELHI },
+      everyMin: 60,
+      channels: ['beacon'],
+      rules: [
+        rule({
+          id: 'bridge-alerts',
+          name: 'Alerts from the tool',
+          when: { mode: 'all', conditions: [{ metric: 'official_alert_count', op: '>', value: 0 }] },
+          severity: 'watch',
+          message: 'The connected tool reports {official_alert_count} alert(s). Check the feed.',
+          cooldownMin: 360,
+        }),
+      ],
+      pipeline: [
+        node('n-mcp-1', 'mcp-tool', 'Pick an MCP server and tool', { server: '', tool: '', args: {}, kind: 'custom', limit: 8 }, false),
+      ],
+    },
+  },
 ];
 
 export function templateById(id: string): Template | undefined {
@@ -828,6 +1158,8 @@ export function templateById(id: string): Template | undefined {
 
 export function instantiate(t: Template, over: Partial<Agent> = {}): Agent {
   const base = structuredClone(t.agent);
+  // genre is copied with the rest; the pipeline array (and each node's config) is cloned, not shared
+  if (t.agent.pipeline) base.pipeline = t.agent.pipeline.map((n) => ({ ...n, config: { ...n.config } }));
   return {
     ...base,
     ...over,

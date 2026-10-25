@@ -6,6 +6,7 @@ import { dirname, extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { HubApp } from './app.ts';
 import { toCap } from './cap.ts';
+import { cleanRoutes } from './gateway.ts';
 
 const UI = join(dirname(fileURLToPath(import.meta.url)), '..', 'ui');
 const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.png': 'image/png' };
@@ -106,8 +107,8 @@ export function startHttp(app: HubApp, opts: { port?: number; token?: string; pa
         return send(200, { enabled: !a.enabled });
       }
       if (m === 'POST' && (r = p.match(/^\/api\/agents\/([\w-]+)\/run$/))) {
-        const n = await app.runOne(r[1]);
-        return n < 0 ? send(404, { error: 'no agent' }) : send(200, { signals: n });
+        const out = await app.runOne(r[1]);
+        return out ? send(200, out) : send(404, { error: 'no agent' });
       }
       if (m === 'POST' && (r = p.match(/^\/api\/agents\/([\w-]+)\/rules$/))) {
         const out = await app.addRule(r[1], String((await body(req)).text ?? ''));
@@ -137,8 +138,81 @@ export function startHttp(app: HubApp, opts: { port?: number; token?: string; pa
         return send(200, { code: app.telegram.newPairingCode(), bot: '' });
       }
       if (m === 'POST' && p === '/api/beacon/pair') {
-        if (!opts.pairing) return send(501, { error: 'Phone pairing is not available yet' });
-        return send(200, await opts.pairing(app));
+        const b = await body(req);
+        if (b.memberId) return send(200, await app.invite(String(b.memberId)));
+        return send(200, await (opts.pairing ? opts.pairing(app) : app.pairingQr()));
+      }
+
+      // ---- nodes -------------------------------------------------------------
+      if (m === 'PUT' && (r = p.match(/^\/api\/agents\/([\w-]+)\/pipeline$/))) {
+        const a = app.setPipeline(r[1], (await body(req)).nodes);
+        return a ? send(200, a) : send(404, { error: 'no agent' });
+      }
+      if (m === 'POST' && (r = p.match(/^\/api\/agents\/([\w-]+)\/nodes\/test$/))) {
+        const out = await app.testNode(r[1], (await body(req)).node);
+        return out ? send(200, out) : send(404, { error: 'no agent' });
+      }
+
+      // ---- gateway -----------------------------------------------------------
+      if (m === 'PUT' && p === '/api/gateway/routes') return send(200, { routes: app.setRoutes(cleanRoutes((await body(req)).routes)) });
+      if (m === 'POST' && p === '/api/gateway/preview') return send(200, { matches: app.gateway.preview((await body(req)).item ?? {}) });
+      if (m === 'POST' && p === '/api/gateway/send-test') {
+        const b = await body(req);
+        const item = { id: 'test-' + Date.now().toString(36), agentId: 'hub', agentName: 'Hub', kind: 'custom' as const, title: 'Test from the desktop', body: String(b.text ?? 'This is a test item from your Hub.').slice(0, 300), severity: 'info' as const, at: Date.now(), tags: [] as string[] };
+        const out = await app.gateway.dispatch([item]);
+        return send(200, { delivered: out.delivered });
+      }
+      if (m === 'GET' && p === '/api/feed') return send(200, { items: app.feed() });
+
+      // ---- members, group chat, asks -----------------------------------------
+      if (m === 'POST' && p === '/api/members') return send(200, app.addMember(await body(req) as never));
+      if ((r = p.match(/^\/api\/members\/([\w-]+)$/))) {
+        if (m === 'DELETE') return app.removeMember(r[1]), send(200, { ok: true });
+        if (m === 'PUT') return send(200, app.updateMember(r[1], await body(req) as never));
+      }
+      if (m === 'POST' && (r = p.match(/^\/api\/members\/([\w-]+)\/invite$/))) return send(200, await app.invite(r[1]));
+      if (m === 'POST' && (r = p.match(/^\/api\/joins\/([\w-]+)\/approve$/))) {
+        const b = await body(req);
+        return send(200, app.approveJoin(r[1], b.role, b.name));
+      }
+      if (m === 'DELETE' && (r = p.match(/^\/api\/joins\/([\w-]+)$/))) return app.declineJoin(r[1]), send(200, { ok: true });
+      if (m === 'POST' && p === '/api/chat') return send(200, app.sendChat(String((await body(req)).text ?? '')));
+      if (m === 'POST' && (r = p.match(/^\/api\/asks\/([\w-]+)$/))) {
+        const b = await body(req);
+        return send((await app.decideAsk(r[1], b.answer === 'approve' ? 'approve' : 'deny')) ? 200 : 409, { ok: true });
+      }
+      if (m === 'PUT' && p === '/api/settings') {
+        const b = await body(req);
+        if (typeof b.allowAdultAsks === 'boolean') app.setAllowAdultAsks(b.allowAdultAsks);
+        if (b.relayUrl !== undefined) {
+          try {
+            app.setRelayUrl(String(b.relayUrl));
+          } catch (e) {
+            return send(400, { error: (e as Error).message });
+          }
+        }
+        return send(200, { allowAdultAsks: app.state().group.allowAdultAsks, relayUrl: app.relayUrl });
+      }
+      if (m === 'POST' && p === '/api/relay/check') {
+        const b = await body(req);
+        try {
+          return send(200, await app.checkRelay(b.relayUrl === undefined ? undefined : String(b.relayUrl)));
+        } catch (e) {
+          return send(400, { error: (e as Error).message });
+        }
+      }
+
+      // ---- MCP servers -------------------------------------------------------
+      if (m === 'POST' && p === '/api/mcp') return send(200, app.addMcp(await body(req) as never));
+      if (m === 'POST' && p === '/api/mcp/test') return send(200, await app.mcp.test((await body(req)).spec));
+      if ((r = p.match(/^\/api\/mcp\/([\w-]+)$/))) {
+        if (m === 'DELETE') return await app.removeMcp(r[1]), send(200, { ok: true });
+        if (m === 'PUT') return send(200, await app.updateMcp(r[1], await body(req) as never));
+      }
+      if (m === 'POST' && (r = p.match(/^\/api\/mcp\/([\w-]+)\/connect$/))) return send(200, await app.connectMcp(r[1]));
+      if (m === 'POST' && (r = p.match(/^\/api\/mcp\/([\w-]+)\/call$/))) {
+        const b = await body(req);
+        return send(200, { result: await app.mcp.callTool(r[1], String(b.tool), b.args ?? {}) });
       }
       if (m === 'POST' && p === '/api/brain') {
         const b = await body(req);
@@ -147,7 +221,8 @@ export function startHttp(app: HubApp, opts: { port?: number; token?: string; pa
       }
       return send(404, { error: 'not found' });
     } catch (e) {
-      send(500, { error: e instanceof Error ? e.message : 'failed' });
+      // errors here come from bad input far more often than from bugs; the message says what to fix
+      send(400, { error: e instanceof Error ? e.message : 'failed' });
     }
   });
   return new Promise((resolve, reject) => (server.once('error', reject), server.listen(opts.port ?? 0, '127.0.0.1', () => resolve({ server, port: (server.address() as { port: number }).port, token }))));

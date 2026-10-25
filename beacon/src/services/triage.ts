@@ -54,11 +54,31 @@ export function choiceFromDescription(text: string): TriageChoiceId | null {
   let bestScore = 0;
   for (const c of TRIAGE_CHOICES) {
     let score = 0;
-    for (const k of c.keywords) if (k && lower.includes(k)) score += 1;
+    for (const k of c.keywords) if (k && mentions(lower, k)) score += 1;
     if (score > bestScore) {
       best = c.id;
       bestScore = score;
     }
   }
   return best;
+}
+
+const NEGATION = /\b(no|not|without|nor|none|never|isn't|aren't|free of)\b|नहीं|नही|बिना/iu;
+
+/**
+ * True when `keyword` appears in `lower` as a whole word (plurals and -ed/-ing allowed) and at least one
+ * appearance is not negated in its own clause. "face" does not match "surface"; "no blood" does not count.
+ * Hindi keywords have no word boundaries in JS, so they are matched as plain substrings.
+ */
+export function mentions(lower: string, keyword: string): boolean {
+  const k = keyword.toLowerCase();
+  if (!k) return false;
+  const ascii = /^[a-z]+$/.test(k);
+  const re = ascii ? new RegExp(`\\b${k}(s|es|ed|ing)?\\b`, 'g') : null;
+  if (!re) return lower.includes(k);
+  for (const m of lower.matchAll(re)) {
+    const before = lower.slice(0, m.index ?? 0).split(/[.,;!?]/).pop() ?? '';
+    if (!NEGATION.test(before)) return true;
+  }
+  return false;
 }

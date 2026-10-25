@@ -57,7 +57,8 @@
       "expo-video",
       "onnxruntime-react-native",
       "expo-font",
-      "expo-audio"
+      "expo-audio",
+      "./plugins/withOrtPackage"
     ]
   }
 }

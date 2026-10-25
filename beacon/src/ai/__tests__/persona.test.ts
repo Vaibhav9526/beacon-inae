@@ -22,7 +22,13 @@ test('replies come out in Hindi when asked', async () => {
 });
 
 test('Didi keeps it short for kids, tells them to involve a grown-up, and never triggers SOS from chat', async () => {
-  const burn = await reply('didi', 'I burnt my hand on the stove', 'en');
+  // "burn" alone is a tie between two guides, so Didi asks first; the tapped choice then gives the steps
+  const asked = await reply('didi', 'I burnt my hand on the stove', 'en');
+  assert.ok(!asked.blocks.some((b) => b.type === 'steps'), 'an unsure match must not give steps');
+  const chip = asked.blocks.find((b) => b.type === 'chips') as Extract<Block, { type: 'chips' }>;
+  const burns = chip.items.find((c) => c.guideId === 'burns');
+  assert.ok(burns, 'the burns guide is offered as a choice');
+  const burn = await reply('didi', burns!.query, 'en', null, burns!.guideId);
   const steps = burn.blocks.find((b) => b.type === 'steps') as Extract<Block, { type: 'steps' }>;
   assert.ok(steps.steps.length <= 4);
   assert.match(texts(burn.blocks).join(' '), /grown-up/i);

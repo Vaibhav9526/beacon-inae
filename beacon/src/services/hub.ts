@@ -1,3 +1,4 @@
+import { pollMs } from './lifeboat';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
 import { AppState, Platform } from 'react-native';
@@ -6,17 +7,24 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { ed25519 } from '@noble/curves/ed25519.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { fromBase64, fromUtf8, toBase64, toHex, utf8 } from '../mesh/bytes';
+import { useSettings } from '../state/settings';
 import { CloudError } from './cloud';
 import { getIdentity } from './identity';
 import { registerPush } from './alerts';
+import { useHubFeed, type HubFeedData } from './hubFeed';
+import { decodeWire, encodeWire, parseGroupKey, type FeedItem, type WireMessage } from './wire';
 
-/** What the hub prints in its pairing QR code. Anything else is ignored. */
+/** What the hub prints in its pairing QR code. v1 has no group key; v2 carries `gk`. Anything else is ignored. */
 export interface HubPairing {
-  v: 1;
+  v: 1 | 2;
   hub: string;
   key: string;
   token: string;
   relay: string;
+  /** base64 32-byte group key (v2) */
+  gk?: string;
+  /** ties this phone to a member the adult created */
+  invite?: string;
 }
 
 export type Severity = 'info' | 'watch' | 'warning' | 'severe';
@@ -33,6 +41,9 @@ export interface PairedHub {
   hubPubKey: string;
   relay: string;
   pairedAt: number;
+  /** base64 group key from the v2 QR. Without it the hub's encrypted messages cannot be read. */
+  gk?: string;
+  invite?: string;
 }
 
 interface HubState {
@@ -42,12 +53,15 @@ interface HubState {
   messages: HubMessage[];
   /** ms timestamp of the newest inbox item we have seen. */
   lastSince: number;
+  /** ms timestamp of the last inbox poll that reached the relay. */
+  lastSyncAt: number;
   set: (p: Partial<HubState>) => void;
 }
 
 const MAX_MESSAGES = 50;
 const POLL_MS = 45_000;
 const SEVERITIES: Severity[] = ['info', 'watch', 'warning', 'severe'];
+const FEED_KEY = 'beacon.hubFeed.v1';
 
 export const useHub = create<HubState>()(
   persist(
@@ -56,12 +70,13 @@ export const useHub = create<HubState>()(
       paired: null,
       messages: [],
       lastSince: 0,
+      lastSyncAt: 0,
       set: (p) => set(p),
     }),
     {
       name: 'beacon.hub.v1',
       storage: createJSONStorage(() => AsyncStorage),
-      partialize: (s) => ({ paired: s.paired, messages: s.messages, lastSince: s.lastSince }),
+      partialize: (s) => ({ paired: s.paired, messages: s.messages, lastSince: s.lastSince, lastSyncAt: s.lastSyncAt }),
       onRehydrateStorage: () => (state) => {
         state?.set({ hydrated: true });
       },
@@ -79,9 +94,15 @@ export function parsePairing(raw: string): HubPairing | null {
   }
   if (!j || typeof j !== 'object') return null;
   const o = j as Record<string, unknown>;
-  if (o.v !== 1) return null;
+  if (o.v !== 1 && o.v !== 2) return null;
   for (const k of ['hub', 'key', 'token', 'relay']) if (typeof o[k] !== 'string' || !o[k]) return null;
-  return { v: 1, hub: o.hub as string, key: o.key as string, token: o.token as string, relay: o.relay as string };
+  let gk: string | undefined;
+  if (o.v === 2) {
+    if (typeof o.gk !== 'string' || !parseGroupKey(o.gk)) return null;
+    gk = o.gk;
+  }
+  const invite = typeof o.invite === 'string' && o.invite ? o.invite : undefined;
+  return { v: o.v, hub: o.hub as string, key: o.key as string, token: o.token as string, relay: o.relay as string, gk, invite };
 }
 
 /** Decodes a push item's blob: base64 of JSON {text, severity}. */
@@ -131,20 +152,39 @@ export async function hubRequest<T>(base: string, method: 'GET' | 'POST', path: 
   }
 }
 
-/** Links this phone to the hub named in the QR code. */
+/** Encrypts a WireMessage with the hub's group key and posts it to the hub's mailbox, then polls for replies. */
+export async function sendToHub(msg: WireMessage): Promise<void> {
+  const { paired } = useHub.getState();
+  if (!paired) throw new CloudError(0, 'not paired');
+  const gk = paired.gk ? parseGroupKey(paired.gk) : null;
+  if (!gk) throw new CloudError(0, 'pair again to get the hub key');
+  const blob = encodeWire(msg, gk);
+  await hubRequest(paired.relay, 'POST', '/v1/mail/send', { to: `hub:${paired.hubId}`, blob });
+  void pollHubInbox();
+}
+
+/** Links this phone to the hub named in the QR code. Sends a hello so the hub can add this phone to the family. */
 export async function pairWithHub(p: HubPairing): Promise<PairedHub> {
   // The relay reads the phone's push token from the devices table when pairing, so make sure it is there first.
   await registerPush();
   const res = await hubRequest<{ ok: boolean; hubId: string; hubPubKey: string }>(p.relay, 'POST', '/v1/hub/pair', { hubId: p.hub, pairToken: p.token });
-  const paired: PairedHub = { hubId: res.hubId, hubPubKey: res.hubPubKey, relay: p.relay.replace(/\/+$/, ''), pairedAt: Date.now() };
-  // Only alerts from now on: nothing sent before pairing should notify.
-  useHub.getState().set({ paired, messages: [], lastSince: paired.pairedAt });
+  const paired: PairedHub = { hubId: res.hubId, hubPubKey: res.hubPubKey, relay: p.relay.replace(/\/+$/, ''), pairedAt: Date.now(), gk: p.gk, invite: p.invite };
+  // Only alerts from now on: nothing sent before pairing should notify. A new hub starts with an empty feed.
+  useHub.getState().set({ paired, messages: [], lastSince: paired.pairedAt, lastSyncAt: 0 });
+  useHubFeed.getState().reset();
+  const s = useSettings.getState();
+  try {
+    await sendToHub({ t: 'hello', name: s.nickname || s.kidName || 'Phone', invite: paired.invite });
+  } catch {
+    /* the hub gets the hello on the next try; pairing itself succeeded */
+  }
   return paired;
 }
 
 /** Forgets the hub on this phone. The hub keeps the link until it is removed on its side. */
 export function unpairHub() {
-  useHub.getState().set({ paired: null, messages: [], lastSince: 0 });
+  useHub.getState().set({ paired: null, messages: [], lastSince: 0, lastSyncAt: 0 });
+  useHubFeed.getState().reset();
 }
 
 /** Maps a pairing failure to a short line for the person. */
@@ -170,30 +210,77 @@ async function notifyNew(items: HubMessage[]) {
   }
 }
 
+/** Local notifications for feed items the hub tagged 'notify'. Same shape as notifyNew. */
+async function notifyFeed(items: FeedItem[]) {
+  if (Platform.OS === 'web') return;
+  for (const it of items) {
+    try {
+      await Notifications.scheduleNotificationAsync({
+        content: { title: `${it.agentName}: ${it.title}`.slice(0, 80), body: it.body.slice(0, 180), sound: 'default' },
+        trigger: null,
+      });
+    } catch {
+      /* notifications are best effort */
+    }
+  }
+}
+
+/** Loads the saved feed once, then saves every change. Runs before the first poll so a poll never overwrites saved data. */
+let feedReady: Promise<void> | null = null;
+function ensureFeed(): Promise<void> {
+  if (!feedReady) {
+    feedReady = (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(FEED_KEY);
+        if (raw) useHubFeed.getState().hydrate(JSON.parse(raw) as Partial<HubFeedData>);
+      } catch {
+        /* unreadable saved feed: start empty */
+      }
+      useHubFeed.subscribe((s) => {
+        const data: HubFeedData = { items: s.items, members: s.members, you: s.you, messages: s.messages, asks: s.asks, notified: s.notified };
+        AsyncStorage.setItem(FEED_KEY, JSON.stringify(data)).catch(() => {});
+      });
+    })();
+  }
+  return feedReady;
+}
+
+interface InboxItem {
+  id: string;
+  from: string;
+  kind: string;
+  blob: string;
+  at: number;
+}
+
 /** One poll of the relay inbox. Failures are swallowed on purpose: the next poll tries again. */
 export async function pollHubInbox() {
   const { paired, lastSince } = useHub.getState();
   if (!paired) return;
   try {
-    const items = await hubRequest<{ id: string; from: string; kind: string; blob: string; at: number }[]>(
-      paired.relay,
-      'GET',
-      `/v1/mail/inbox?since=${lastSince}`,
-    );
-    if (!Array.isArray(items) || items.length === 0) return;
+    await ensureFeed();
+    const items = await hubRequest<InboxItem[]>(paired.relay, 'GET', `/v1/mail/inbox?since=${lastSince}`);
+    if (!Array.isArray(items)) return;
+    const gk = paired.gk ? parseGroupKey(paired.gk) : null;
     const fresh: HubMessage[] = [];
+    const feedNotify: FeedItem[] = [];
     for (const it of items) {
-      if (it.kind !== 'push') continue;
-      const d = decodePushBlob(it.blob);
-      if (d) fresh.push({ id: it.id, text: d.text, severity: d.severity, at: it.at });
+      if (it.kind === 'push') {
+        const d = decodePushBlob(it.blob);
+        if (d) fresh.push({ id: it.id, text: d.text, severity: d.severity, at: it.at });
+      } else if (it.kind === 'msg' && gk && it.from === `hub:${paired.hubId}`) {
+        const msg = decodeWire(it.blob, gk);
+        if (msg) feedNotify.push(...useHubFeed.getState().ingest(msg));
+      }
     }
-    const latest = Math.max(lastSince, ...items.map((i) => i.at));
+    const latest = items.length ? Math.max(lastSince, ...items.map((i) => i.at)) : lastSince;
     const state = useHub.getState();
     const known = new Set(state.messages.map((m) => m.id));
     const news = fresh.filter((m) => !known.has(m.id));
     const messages = [...state.messages, ...news].slice(-MAX_MESSAGES);
-    useHub.getState().set({ messages, lastSince: latest });
+    useHub.getState().set({ messages, lastSince: latest, lastSyncAt: Date.now() });
     void notifyNew(news);
+    void notifyFeed(feedNotify);
   } catch {
     /* offline or hub unreachable: fail silently */
   }
@@ -205,7 +292,7 @@ let subscribed = false;
 function startTimer() {
   if (timer) return;
   void pollHubInbox();
-  timer = setInterval(() => void pollHubInbox(), POLL_MS);
+  timer = setInterval(() => void pollHubInbox(), pollMs(POLL_MS));
 }
 
 function stopTimer() {

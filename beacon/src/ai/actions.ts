@@ -27,10 +27,10 @@ export async function runAction(a: Action): Promise<string | null> {
       await call112();
       return null;
     case 'alerts':
-      router.push((mode === 'parent' ? '/parent/alerts' : '/adult/news') as never);
+      router.navigate((mode === 'parent' ? '/parent/alerts' : '/news') as never);
       return null;
     case 'chat':
-      router.push('/adult/community' as never);
+      router.navigate('/adult/community' as never);
       return null;
     case 'settings':
       if (a.setting === 'hindi') s.set({ lang: 'hi' });

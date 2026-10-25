@@ -22,6 +22,7 @@ export const DISASTERS: DisasterGuide[] = [
       ['Check yourself and others for injuries. Switch off gas and electricity if safe. If you smell gas, leave and do not use flames or switches.', 'ख़ुद और दूसरों में चोट देखें। सुरक्षित हो तो गैस और बिजली बंद करें। गैस की गंध हो तो बाहर निकलें, आग या स्विच न छुएँ।'],
       ['Leave damaged buildings. Do not re-enter until declared safe. Use Beacon "I am safe" to let family know.', 'क्षतिग्रस्त इमारत छोड़ दें। सुरक्षित घोषित होने तक वापस न जाएँ। परिवार को बताने के लिए Beacon "मैं सुरक्षित हूँ" इस्तेमाल करें।'],
       ['Near the coast, move to high ground at once after a strong or long quake in case of tsunami.', 'तट के पास तेज़ या लंबे भूकंप के बाद सुनामी की आशंका में तुरंत ऊँचाई पर जाएँ।'],
+      ['Call 112 for anyone who is injured or trapped.', 'घायल या फँसे व्यक्ति के लिए 112 पर कॉल करें।'],
     ],
   },
   {
@@ -45,6 +46,7 @@ export const DISASTERS: DisasterGuide[] = [
       ['Treat all floodwater and tap water as unsafe: boil or treat it. Throw away food that touched floodwater.', 'बाढ़ और नल के पानी को असुरक्षित मानें: उबालें या शुद्ध करें। बाढ़ के पानी से छुआ खाना फेंक दें।'],
       ['Watch for snakes, broken glass, weak floors. Wash cuts well and get a tetanus shot if due.', 'साँप, टूटे काँच, कमज़ोर फ़र्श से सावधान रहें। कट अच्छी तरह धोएँ और टेटनस का टीका बाक़ी हो तो लगवाएँ।'],
       ['Stay alert for diarrhoea, fever and skin infections. Use ORS early.', 'दस्त, बुखार और त्वचा संक्रमण पर नज़र रखें। ORS जल्दी दें।'],
+      ['Call 112 for anyone injured or trapped, or with diarrhoea or fever that does not settle.', 'घायल या फँसे व्यक्ति, या दस्त-बुखार जो न थमे, उसके लिए 112 पर कॉल करें।'],
     ],
   },
   {
@@ -66,6 +68,7 @@ export const DISASTERS: DisasterGuide[] = [
       ['Stay away from fallen power lines and standing water.', 'गिरे बिजली के तारों और जमे पानी से दूर रहें।'],
       ['Check for injuries. Use only boiled or treated water.', 'चोटें जाँचें। केवल उबला या शुद्ध किया पानी इस्तेमाल करें।'],
       ['Return home only when officials say so. Report damage and needs on the Beacon resource board.', 'अधिकारियों के कहने पर ही घर लौटें। नुक़सान और ज़रूरतें Beacon संसाधन बोर्ड पर बताएँ।'],
+      ['Call 112 for anyone injured or trapped, or if you smell gas.', 'घायल या फँसे व्यक्ति, या गैस की गंध हो तो 112 पर कॉल करें।'],
     ],
   },
   {
@@ -83,7 +86,7 @@ export const DISASTERS: DisasterGuide[] = [
     ],
     after: [
       ['Stay away from the slide area; more slides may follow.', 'भूस्खलन क्षेत्र से दूर रहें; और हो सकते हैं।'],
-      ['Check for trapped people and call rescue teams; do not enter unstable debris. Watch for broken power and gas lines.', 'फँसे लोगों को देखें और बचाव दल बुलाएँ; अस्थिर मलबे में न जाएँ। टूटी बिजली और गैस लाइनों से सावधान।'],
+      ['Check for trapped people and call rescue teams; do not enter unstable debris. Watch for broken power and gas lines. Call 112 for trapped people.', 'फँसे लोगों को देखें और बचाव दल बुलाएँ; अस्थिर मलबे में न जाएँ। टूटी बिजली और गैस लाइनों से सावधान। फँसे लोगों के लिए 112 पर कॉल करें।'],
     ],
   },
   {
@@ -125,7 +128,9 @@ export const DISASTERS: DisasterGuide[] = [
       ['A strong or long earthquake near the coast, or the sea suddenly pulling back, is a natural warning: go up and inland immediately. Do not wait for an official alert.', 'तट के पास तेज़ या लंबा भूकंप, या समुद्र का अचानक पीछे हटना प्राकृतिक चेतावनी है: तुरंत ऊँचाई और अंदर की ओर जाएँ। सरकारी अलर्ट का इंतज़ार न करें।'],
       ['Walk or run if roads are jammed. Never go to the beach to watch.', 'सड़कें जाम हों तो पैदल या दौड़कर जाएँ। देखने के लिए समुद्र तट पर कभी न जाएँ।'],
     ],
-    after: [['Waves can keep coming for hours. Stay on high ground until officials say it is safe.', 'लहरें घंटों आ सकती हैं। अधिकारियों के सुरक्षित बताने तक ऊँचाई पर रहें।']],
+    after: [['Waves can keep coming for hours. Stay on high ground until officials say it is safe.', 'लहरें घंटों आ सकती हैं। अधिकारियों के सुरक्षित बताने तक ऊँचाई पर रहें।'],
+      ['Call 112 for injuries or for any rescue needed.', 'चोट या बचाव की ज़रूरत हो तो 112 पर कॉल करें।'],
+    ],
   },
 ];
 

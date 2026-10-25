@@ -58,6 +58,7 @@ export interface PhotoAnalysis {
 /** Vision model if it is ready and answers in time; otherwise null and the caller uses guided triage. */
 export async function analysePhoto(uri: string): Promise<PhotoAnalysis | null> {
   const description = await describeImage(uri).catch(() => null);
-  if (!description) return null;
+  // the model is told to answer "unclear" when it cannot tell; that is no description at all
+  if (!description || /\bunclear\b/i.test(description)) return null;
   return { description, choice: choiceFromDescription(description) };
 }

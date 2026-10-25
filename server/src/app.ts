@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { distanceKm } from '../../beacon/src/alerts/sources.ts';
@@ -37,6 +37,8 @@ export interface AppDeps {
   modToken?: string;
   now?: () => number;
   dataDir: string;
+  /** Shown by GET /healthz. */
+  version?: string;
 }
 
 const num = (v: string | null, d?: number) => {
@@ -70,9 +72,11 @@ export function createApp(d: AppDeps) {
   };
 
   const mod = (req: Req) => {
-    const auth = String(req.headers['authorization'] ?? '');
-    if (!d.modToken || auth !== `Bearer ${d.modToken}`) throw new HttpError(401, 'moderator token required');
+    const auth = Buffer.from(String(req.headers['authorization'] ?? ''));
+    const want = Buffer.from(`Bearer ${d.modToken ?? ''}`);
+    if (!d.modToken || auth.length !== want.length || !timingSafeEqual(auth, want)) throw new HttpError(401, 'moderator token required');
   };
+  const started = Date.now();
 
   async function newsFor(lat: number, lon: number, limit = 30): Promise<NewsCard[]> {
     const here = { lat, lon };
@@ -111,6 +115,8 @@ export function createApp(d: AppDeps) {
   // ---------- public ----------
 
   r.get('/health', () => ({ ok: true, time: now() }));
+  /** Health check for hosts (Railway) and the desktop Hub's "Check" button. No auth. */
+  r.get('/healthz', () => ({ ok: true, uptime: Math.round((Date.now() - started) / 1000), version: d.version ?? 'unknown' }));
   r.get('/v1/pubkey', () => ({ publicKey: d.key.publicKeyB64 }));
 
   r.get('/v1/alerts', async (req) => ({ alerts: await d.alerts.near({ lat: num(req.query.get('lat')), lon: num(req.query.get('lon')) }) }));

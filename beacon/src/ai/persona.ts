@@ -1,5 +1,5 @@
 import { type Guide, type Lang, type T, DISASTERS, FIRST_AID, getDisaster, getGuide, pick } from '../kb';
-import { type NeedleEngine, CONFIRM_BELOW, route } from './router';
+import { type NeedleEngine, CONFIRM_BELOW, type RouteResult, route } from './router';
 import type { Action } from './tools';
 
 export type PersonaKey = 'didi' | 'asha' | 'veer';
@@ -64,7 +64,8 @@ export type Block =
   | { type: 'guide'; id: string }
   | { type: 'disaster'; id: string }
   | { type: 'action'; action: Action; label: string }
-  | { type: 'chips'; items: { label: string; query: string }[] };
+  /** `guideId` makes a tap open that exact guide, so a clarifying choice never goes back through the router. */
+  | { type: 'chips'; items: { label: string; query: string; guideId?: string }[] };
 
 export interface Reply {
   blocks: Block[];
@@ -99,6 +100,8 @@ const NO_MATCH: Record<PersonaKey, T> = {
 };
 
 const CALL: T = ['If it is serious, call 112 now.', 'गंभीर हो तो अभी 112 पर कॉल करें।'];
+/** Shown instead of steps when the router is not sure what the person means. */
+const CLARIFY: T = ['Did you mean one of these? Tap the closest one. If someone is in danger or badly hurt, call 112 now.', 'क्या आपका मतलब इनमें से कोई है? सबसे मिलता हुआ चुनें। कोई ख़तरे में या बहुत घायल हो तो अभी 112 पर कॉल करें।'];
 const KID_GROWNUP: T = ['Always tell a grown-up, a teacher or a neighbour you trust.', 'हमेशा किसी बड़े, टीचर या भरोसेमंद पड़ोसी को बताओ।'];
 
 const chipsFor = (p: PersonaKey, lang: Lang) => PERSONAS[p].starters.map((s) => ({ label: pick(s, lang), query: pick(s, lang) }));
@@ -126,11 +129,29 @@ function speechOf(blocks: Block[]): string {
  * Answer a question as a character. Needle (when present) or the keyword router picks WHAT to show;
  * every word of medical or safety content comes from the curated knowledge base.
  */
-export async function reply(persona: PersonaKey, text: string, lang: Lang, engine?: NeedleEngine | null): Promise<Reply> {
+export async function reply(persona: PersonaKey, text: string, lang: Lang, engine?: NeedleEngine | null, guideId?: string): Promise<Reply> {
   const kid = PERSONAS[persona].kidSafe;
-  const r = await route(text, engine);
+  // a tapped clarifying choice names its guide directly
+  const r: RouteResult = guideId ? { action: { type: 'guide', id: guideId }, source: 'keywords', confidence: 1, alternatives: [] } : await route(text, engine);
   const a = r.action;
   let blocks: Block[] = [];
+
+  // unsure match: a question with the candidate topics, never steps for a guess
+  if (r.ask?.length) {
+    const options = r.ask.map(getGuide).filter((g): g is Guide => !!g).slice(0, 3);
+    if (options.length) {
+      const question = pick(CLARIFY, lang);
+      return {
+        blocks: [
+          { type: 'text', text: question },
+          { type: 'chips', items: options.map((x) => ({ label: pick(x.title, lang), query: pick(x.title, lang), guideId: x.id })) },
+        ],
+        speech: question,
+        source: r.source,
+        confidence: r.confidence,
+      };
+    }
+  }
 
   if (a.type === 'guide') {
     const g = getGuide(a.id);

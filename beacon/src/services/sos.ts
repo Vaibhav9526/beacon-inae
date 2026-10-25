@@ -56,7 +56,11 @@ export async function sendSafeNow(note?: string): Promise<{ cloud: boolean }> {
 export async function smsFallback() {
   const s = useSettings.getState();
   const fix = await getFix({ maxWaitMs: 2500 });
-  const body = `SOS from ${name()}. I need help.${fix ? ` My location: https://maps.google.com/?q=${fix.lat.toFixed(5)},${fix.lon.toFixed(5)}` : ''}`;
+  // OpenStreetMap link (no Google) plus plain coordinates, so the text still works with no map app
+  const lat = fix?.lat.toFixed(6);
+  const lon = fix?.lon.toFixed(6);
+  const where = fix ? ` My location: ${lat}, ${lon}. Map: https://www.openstreetmap.org/?mlat=${lat}&mlon=${lon}#map=17/${lat}/${lon}` : '';
+  const body = `SOS from ${name()}. I need help.${where}`;
   const to = s.contacts.map((c) => c.phone).filter(Boolean).join(',');
   const sep = Platform.OS === 'ios' ? '&' : '?';
   await Linking.openURL(`sms:${to}${sep}body=${encodeURIComponent(body)}`);

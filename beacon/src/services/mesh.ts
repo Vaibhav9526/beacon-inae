@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, PermissionsAndroid, Platform } from 'react-native';
 import { create } from 'zustand';
+import type { OpaqueNote, RoadEvent, RoadReport, ShakeEvent, ShakeVote } from '../mesh/appTypes';
 import { fromBase64 } from '../mesh/bytes';
 import { BleTransport } from '../mesh/ble';
 import {
@@ -46,6 +47,9 @@ export interface MeshState {
   sos: SosMessage[];
   safe: SafeMessage[];
   alerts: MeshAlert[];
+  roads: RoadEvent[];
+  opaque: OpaqueNote[];
+  shakes: ShakeEvent[];
   sosActive: boolean;
   start(): Promise<void>;
   stop(): Promise<void>;
@@ -56,6 +60,10 @@ export interface MeshState {
   sendSafe(note?: string): Promise<void>;
   relayAlert(alert: AlertBody, sig?: Uint8Array): void;
   refreshChannels(): Promise<void>;
+  sendRoad(report: RoadReport): void;
+  sendOpaque(tag: string, blobB64: string): void;
+  sendShake(vote: ShakeVote): void;
+  setPosition(lat: number, lon: number): void;
 }
 
 async function ensurePermissions(): Promise<boolean> {
@@ -83,6 +91,9 @@ export const useMesh = create<MeshState>((set, get) => ({
   sos: [],
   safe: [],
   alerts: [],
+  roads: [],
+  opaque: [],
+  shakes: [],
   sosActive: false,
 
   start() {
@@ -127,10 +138,25 @@ export const useMesh = create<MeshState>((set, get) => ({
       n.on('sos', (m) => set((s) => ({ sos: cap([...s.sos.filter((x) => x.id !== m.id), m]) })));
       n.on('safe', (m) => set((s) => ({ safe: cap([...s.safe, m]) })));
       n.on('alert', (a) => set((s) => ({ alerts: [...s.alerts.filter((x) => x.id !== a.id), a] })));
+      n.on('road', (e) => set((s) => ({ roads: [...s.roads.filter((x) => x.report.id !== e.report.id), e].slice(-300) })));
+      n.on('opaque', (o) =>
+        set((s) => ({ opaque: [...s.opaque.filter((x) => !(x.tag === o.tag && x.blob === o.blob)), o].slice(-500) })),
+      );
+      n.on('shake', (e) =>
+        set((s) => {
+          const cutoff = Date.now() - 120_000;
+          return { shakes: [...s.shakes.filter((x) => x.receivedAt >= cutoff && x.vote.id !== e.vote.id), e].slice(-100) };
+        }),
+      );
+      // roads and opaque notes restored from the snapshot are held by the node; seed the store with them
+      set({ roads: n.roadEvents().slice(0, 300), opaque: n.opaqueNotes().slice(-500) });
       n.on('peers', () => set({ peers: n.peerList(), neighbours: n.neighbours }));
 
       const fix = (await lastKnownFix()) ?? null;
-      if (fix) n.setLocation(fix.lat, fix.lon);
+      if (fix) {
+        n.setLocation(fix.lat, fix.lon);
+        n.setPosition(fix.lat, fix.lon);
+      }
       set({ channels: n.joinedChannels });
 
       try {
@@ -198,8 +224,25 @@ export const useMesh = create<MeshState>((set, get) => ({
     const fix = await getFix({ maxWaitMs: 2000 });
     if (fix && node) {
       node.setLocation(fix.lat, fix.lon);
+      node.setPosition(fix.lat, fix.lon);
       set({ channels: node.joinedChannels });
     }
+  },
+
+  sendRoad(report) {
+    node?.sendRoad(report);
+  },
+
+  sendOpaque(tag, blobB64) {
+    node?.sendOpaque(tag, blobB64);
+  },
+
+  sendShake(vote) {
+    node?.sendShake(vote);
+  },
+
+  setPosition(lat, lon) {
+    node?.setPosition(lat, lon);
   },
 }));
 

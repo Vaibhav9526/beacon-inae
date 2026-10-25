@@ -46,8 +46,8 @@ export function PhotoHelperCard() {
       {!ortAvailable() ? (
         <Txt size={12.5} weight="600">
           {lang === 'hi'
-            ? 'स्मार्ट फ़ोटो सहायक चालू करने के लिए ऐप अपडेट करें। गाइडेड फ़ोटो जाँच पहले से काम करती है।'
-            : 'Update the app to enable the smart photo helper. Guided photo checks already work.'}
+            ? 'स्मार्ट विवरण के लिए ऐप का नया संस्करण चाहिए। फ़ोटो जाँच अभी भी काम करती है: ऊपर "फ़ोटो लें" दबाएँ।'
+            : 'The smart description needs the newer app build, which this phone does not have yet. Photo check still works now: tap Take a photo above and answer a few questions to get first-aid steps.'}
         </Txt>
       ) : vlm.status === 'downloading' ? (
         <View style={{ gap: 6 }}>

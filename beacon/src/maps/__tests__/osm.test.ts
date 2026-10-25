@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { bearingDeg, compassWord, formatDistance, nearest, overpassQuery, parseOverpass, project } from '../osm';
+import { MAX_MINOR_ROADS, bearingDeg, compassWord, formatDistance, nearest, needsRefresh, overpassQuery, parseOverpass, project, sharedVertices, simplify, vertexKey } from '../osm';
 
 const C = { lat: 28.6139, lon: 77.209 };
 
@@ -17,18 +17,24 @@ const sample = {
   ],
 };
 
-test('query covers roads, water and emergency places in the bbox', () => {
+test('query covers roads, walking connectivity, water and emergency places in the bbox', () => {
   const q = overpassQuery(C.lat, C.lon, 3);
   assert.match(q, /\[out:json\]/);
   assert.match(q, /hospital/);
   assert.match(q, /drinking_water/);
   assert.match(q, /out geom/);
+  assert.match(q, /footway/);
+  assert.match(q, /service/);
 });
 
-test('parse keeps drivable roads, water and places; drops footpaths and duplicates', () => {
+test('parse keeps roads, footpaths (walking only), water and places; drops duplicates', () => {
   const a = parseOverpass(sample as never, C, 3, 123);
-  assert.equal(a.roads.length, 1, 'footway excluded');
+  assert.equal(a.v, 2);
+  assert.equal(a.roads.length, 2, 'primary and footway');
   assert.equal(a.roads[0].c, 1);
+  assert.equal(a.roads[0].f, undefined);
+  assert.equal(a.roads[1].c, 3);
+  assert.equal(a.roads[1].f, 1, 'footway flagged walking only');
   assert.equal(a.water.length, 1);
   const kinds = a.places.map((p) => p.kind).sort();
   assert.deepEqual(kinds, ['hospital', 'school', 'shelter', 'water'], 'duplicate hospital collapsed');
@@ -57,6 +63,47 @@ test('bearing, compass and distance formatting', () => {
   assert.equal(compassWord(359), 'N');
   assert.equal(formatDistance(430), '430 m');
   assert.equal(formatDistance(1530), '1.5 km');
+});
+
+test('simplify keeps a shared junction vertex that would otherwise be dropped', () => {
+  // the middle vertex is about 3 m from the first one, so the plain simplifier drops it
+  const way = [{ lat: 28.6, lon: 77.2 }, { lat: 28.60003, lon: 77.2 }, { lat: 28.6005, lon: 77.2 }];
+  assert.equal(simplify(way).length, 4, 'dropped without junction data');
+  const shared = new Set([vertexKey(28.60003, 77.2)]);
+  assert.equal(simplify(way, 6, shared).length, 6, 'kept as a junction');
+  assert.equal(sharedVertices([way, [{ lat: 28.60003, lon: 77.2 }, { lat: 28.6, lon: 77.21 }]]).size, 1);
+});
+
+test('parse keeps the junction where a road and a footpath meet', () => {
+  const j = { lat: 28.60003, lon: 77.2 };
+  const json = {
+    elements: [
+      { type: 'way', id: 1, tags: { highway: 'primary' }, geometry: [{ lat: 28.6, lon: 77.2 }, j, { lat: 28.6005, lon: 77.2 }] },
+      { type: 'way', id: 2, tags: { highway: 'footway' }, geometry: [j, { lat: 28.6, lon: 77.21 }] },
+    ],
+  };
+  const a = parseOverpass(json as never, C, 3, 1);
+  const p = a.roads[0].p;
+  assert.equal(p.length, 6, 'junction vertex kept on the primary road');
+  assert.ok(p.some((v, i) => i % 2 === 0 && Math.abs(v - j.lat) < 1e-9));
+});
+
+test('minor ways are capped at MAX_MINOR_ROADS, class 0-2 always kept', () => {
+  const elements: never[] = [];
+  elements.push({ type: 'way', id: 0, tags: { highway: 'primary' }, geometry: [{ lat: C.lat, lon: C.lon }, { lat: C.lat + 0.001, lon: C.lon }] } as never);
+  for (let k = 0; k < MAX_MINOR_ROADS + 100; k++) {
+    const y = C.lat + k * 0.0001;
+    elements.push({ type: 'way', id: k + 1, tags: { highway: 'footway' }, geometry: [{ lat: y, lon: C.lon + 0.01 }, { lat: y + 0.00005, lon: C.lon + 0.01 }] } as never);
+  }
+  const a = parseOverpass({ elements } as never, C, 3);
+  assert.equal(a.roads.length, MAX_MINOR_ROADS + 1);
+  assert.equal(a.roads[0].c, 1);
+});
+
+test('areas saved before v 2 are flagged for refresh', () => {
+  const old = { ...parseOverpass(sample as never, C, 3), v: 1 as const };
+  assert.equal(needsRefresh(old), true);
+  assert.equal(needsRefresh(parseOverpass(sample as never, C, 3)), false);
 });
 
 test('projection puts the centre in the middle and north up, east right', () => {

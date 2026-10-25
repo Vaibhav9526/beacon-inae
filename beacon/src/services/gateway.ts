@@ -1,3 +1,4 @@
+import { pollMs } from './lifeboat';
 import { useSettings } from '../state/settings';
 import { useAlerts } from './alerts';
 import { cloud, cloudConfigured } from './cloud';
@@ -41,7 +42,7 @@ async function tick() {
 export function startGateway() {
   if (timer) return;
   void tick().catch(() => {});
-  timer = setInterval(() => void tick().catch(() => {}), 60_000);
+  timer = setInterval(() => void tick().catch(() => {}), pollMs(60_000));
 }
 
 export function stopGateway() {
@@ -68,7 +69,7 @@ export function startFamilyPing() {
     }
   };
   void ping();
-  familyTimer = setInterval(() => void ping(), 60_000);
+  familyTimer = setInterval(() => void ping(), pollMs(60_000));
 }
 
 export function stopFamilyPing() {

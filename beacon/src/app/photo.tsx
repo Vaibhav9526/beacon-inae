@@ -58,7 +58,7 @@ export default function PhotoCheck() {
   };
 
   const facts = [
-    vlm === 'ready' ? (hi ? 'स्मार्ट विवरण: तैयार' : 'Smart description: ready') : hi ? 'केवल गाइडेड जाँच' : 'Guided check only',
+    vlm === 'ready' ? (hi ? 'स्मार्ट विवरण: तैयार (गलत हो सकता है)' : 'Smart description: ready (can be wrong)') : hi ? 'केवल गाइडेड जाँच' : 'Guided check only',
     hi ? 'ऑफ़लाइन काम करता है' : 'Works offline',
     hi ? 'निदान नहीं है; आपात स्थिति में 112 पर कॉल करें' : 'Not a diagnosis; call 112 in an emergency',
   ];
@@ -67,7 +67,7 @@ export default function PhotoCheck() {
     <Screen title={hi ? 'फोटो जाँच' : 'Photo check'}>
       <Card tint="yellow" style={{ gap: 12, padding: 18, borderRadius: 24 }}>
         <Txt size={14} color={p.tint.yellow.ink}>
-          {hi ? 'किसी चोट या खतरे की फ़ोटो लें और प्राथमिक उपचार के कदम पाएँ।' : 'Take a photo of an injury or hazard and get first-aid steps.'}
+          {hi ? 'फ़ोटो लें, फिर कुछ सवालों के जवाब दें। प्राथमिक उपचार के कदम आपके जवाबों से बनते हैं, फ़ोटो से नहीं।' : 'Take a photo, then answer a few questions. The first-aid steps come from your answers, not from the photo.'}
         </Txt>
         <Txt size={13} color={p.tint.yellow.ink} style={{ opacity: 0.85 }}>
           {hi ? 'यह ऑफ़लाइन काम करता है, और फ़ोटो आपके फ़ोन से बाहर नहीं जाती।' : 'It works offline, and the photo never leaves your phone.'}

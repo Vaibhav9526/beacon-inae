@@ -50,7 +50,7 @@ export function useVoiceCommands() {
       if (nav) {
         show({ text: nav.label }, HOLD_MS);
         void speak(nav.label, 'en');
-        router.push(nav.route as never);
+        router.navigate(nav.route as never);
         return;
       }
       // 2. Calls and "I am safe" come from the keyword router (no engine here, so it is quick).
@@ -88,7 +88,7 @@ export function VoiceToast({ toast }: { toast: Toast | null }) {
   return (
     <Animated.View key={toast.text + String(toast.toPersona)} entering={FadeIn.duration(120)} exiting={FadeOut.duration(300)} pointerEvents={toast.toPersona ? 'auto' : 'none'} style={styles.toastWrap}>
       {toast.toPersona ? (
-        <Press accessibilityRole="button" accessibilityLabel="Ask Didi instead" onPress={() => router.push(PERSONA_CHAT as never)} style={styles.toast}>
+        <Press accessibilityRole="button" accessibilityLabel="Ask Didi instead" onPress={() => router.navigate(PERSONA_CHAT as never)} style={styles.toast}>
           {label}
         </Press>
       ) : (

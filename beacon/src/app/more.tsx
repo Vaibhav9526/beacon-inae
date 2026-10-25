@@ -2,13 +2,13 @@ import { router } from 'expo-router';
 import React from 'react';
 import { Pressable, View } from 'react-native';
 import Animated, { Easing, useAnimatedStyle, useReducedMotion, useSharedValue, withTiming } from 'react-native-reanimated';
-import { Bell, Cross, Drop, Flower, Ribbon, Shield, Sun, Bolt, Wave } from '../../components/Deco';
-import { Icon, type IconName } from '../../components/Icon';
-import { Screen } from '../../components/Screen';
-import { Appear, type TintName, Txt, useTheme } from '../../components/ui';
-import { useLang, useT } from '../../i18n';
-import * as haptics from '../../services/haptics';
-import { useSettings } from '../../state/settings';
+import { Bell, Cross, Drop, Flower, Ribbon, Shield, Sun, Bolt, Wave } from '../components/Deco';
+import { Icon, type IconName } from '../components/Icon';
+import { Screen } from '../components/Screen';
+import { Appear, type TintName, Txt, useTheme } from '../components/ui';
+import { useLang, useT } from '../i18n';
+import * as haptics from '../services/haptics';
+import { useSettings } from '../state/settings';
 
 const EASE = Easing.out(Easing.cubic);
 
@@ -73,10 +73,10 @@ export default function More() {
   const hi = lang === 'hi';
   const greet = hi ? `नमस्ते${name ? ` ${name}` : ''}, आपको क्या चाहिए?` : `Hi${name ? ` ${name}` : ' there'}, what do you need?`;
 
-  const go = (href: string) => () => router.push(href as never);
+  const go = (href: string) => () => router.navigate(href as never);
 
   return (
-    <Screen back={false} title={t('tabMore')}>
+    <Screen back title={t('tabMore')}>
       <Appear>
         <View style={{ borderRadius: 28, backgroundColor: p.tint.peach.bg, padding: 20, minHeight: 150, overflow: 'hidden', justifyContent: 'flex-end' }}>
           <View pointerEvents="none" style={{ position: 'absolute', right: -16, top: -18, transform: [{ rotate: '12deg' }] }}>

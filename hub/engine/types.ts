@@ -62,6 +62,10 @@ export interface Agent {
   personaId?: string;
   /** Saved custom look, drawn by the UI; absent means the persona's default. */
   look?: Look;
+  /** What the agent is about (news, wind, flood, ...). */
+  genre?: Genre;
+  /** The path its data takes: source nodes first, then filters. Empty or absent = the built-in rules only. */
+  pipeline?: NodeSpec[];
   templateId?: string;
   enabled: boolean;
   watch: SourceKind[];
@@ -191,3 +195,130 @@ export interface Persona {
   /** Phone voice role for read-aloud (didi, asha, veer, default). */
   speaks: 'didi' | 'asha' | 'veer' | 'default';
 }
+
+// ---------------------------------------------------------------------------
+// Hub v2: nodes -> agents -> gateway -> phones. See docs/hub-v2-plan.md.
+// ---------------------------------------------------------------------------
+
+export type FeedKind = 'news' | 'weather' | 'wind' | 'quake' | 'flood' | 'alert' | 'health' | 'supply' | 'advisory' | 'chat' | 'custom';
+
+/** One thing an agent found, ready to show on a phone: a headline, a few words, how serious it is. */
+export interface FeedItem {
+  id: string;
+  agentId: string;
+  agentName: string;
+  /** the node that produced it, when known */
+  nodeId?: string;
+  kind: FeedKind;
+  title: string;
+  /** about 60 words at most */
+  body: string;
+  severity: Severity;
+  at: number;
+  url?: string;
+  tags: string[];
+  place?: string;
+  /** small numbers worth showing, e.g. {wind_kmh: 62} */
+  data?: Record<string, number | string>;
+}
+
+export type NodeKind = 'rss' | 'http-json' | 'weather' | 'aqi' | 'quake' | 'cap' | 'mcp-tool' | 'keyword-filter' | 'threshold' | 'summarize' | 'dedupe';
+
+/**
+ * One step of an agent's path. Source nodes (rss, http-json, weather, aqi, quake, cap, mcp-tool) produce items;
+ * the others change the stream that flows through them. An agent's `pipeline` runs top to bottom.
+ */
+export interface NodeSpec {
+  id: string;
+  kind: NodeKind;
+  label: string;
+  /** kind-specific settings, e.g. {url, limit} for rss, {server, tool, args} for mcp-tool, {words:[...], mode:'any'} for keyword-filter */
+  config: Record<string, unknown>;
+  enabled?: boolean;
+}
+
+/** What an agent is about. Used for grouping in the UI and for default nodes. */
+export type Genre = 'news' | 'weather' | 'wind' | 'quake' | 'flood' | 'health' | 'supply' | 'community' | 'custom';
+
+export interface NodeRunResult {
+  nodeId: string;
+  ok: boolean;
+  items: number;
+  ms: number;
+  error?: string;
+}
+
+/** A rule that decides which items go where. First matching route wins unless `continue` is set. */
+export interface GatewayRoute {
+  id: string;
+  name: string;
+  enabled: boolean;
+  match: {
+    kinds?: FeedKind[];
+    agents?: string[];
+    tags?: string[];
+    minSeverity?: Severity;
+  };
+  /** who receives it: every phone, only phones of members with these roles, or named members */
+  to: { phones: 'all' | 'none'; roles?: MemberRole[]; members?: string[]; telegram?: boolean };
+  /** also push a notification on the phone when the item is at least this serious (default 'warning') */
+  notifyFrom?: Severity;
+  continue?: boolean;
+}
+
+export type MemberRole = 'adult' | 'elder' | 'child';
+
+export interface Member {
+  id: string;
+  name: string;
+  role: MemberRole;
+  /** the phone's device id once it paired with this member's invite */
+  deviceId?: string;
+  telegramChatId?: number;
+  /** the name used in health readings (hr:<healthName>) */
+  healthName?: string;
+  look?: Look;
+  /** adults can add and remove members; the first member is always an adult */
+  addedBy?: string;
+  joinedAt?: number;
+}
+
+export interface GroupMessage {
+  id: string;
+  /** a member id, or 'hub' for system and agent messages */
+  from: string;
+  fromName: string;
+  text: string;
+  at: number;
+  kind: 'text' | 'sos' | 'safe' | 'alert' | 'agent';
+}
+
+export interface McpServerSpec {
+  id: string;
+  name: string;
+  transport: 'stdio' | 'http';
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
+  enabled: boolean;
+}
+
+export interface McpToolInfo {
+  server: string;
+  name: string;
+  description: string;
+  inputSchema?: unknown;
+}
+
+/** What travels between hub and phones (inside an encrypted blob, see engine/wire.ts). */
+export type WireMessage =
+  | { t: 'feed'; items: FeedItem[] }
+  | { t: 'members'; members: Array<Pick<Member, 'id' | 'name' | 'role' | 'look'>>; you?: string }
+  | { t: 'chat'; msg: GroupMessage }
+  | { t: 'ask'; id: string; text: string }
+  | { t: 'answer'; id: string; text: string; ok: boolean }
+  | { t: 'hello'; name: string; role?: MemberRole; invite?: string }
+  | { t: 'safe'; name: string; note?: string }
+  | { t: 'sos'; name: string; lat?: number; lon?: number; note?: string };

@@ -66,15 +66,42 @@ export class BeaconLink implements Sender {
     return json;
   }
 
+  /** Point the link at another relay server. Takes effect on the next call; the hub's identity is unchanged. */
+  setUrl(url: string) {
+    this.relayUrl = url;
+  }
+  get url() {
+    return this.relayUrl;
+  }
+
   register = () => this.call('POST', '/v1/hub/register', { hubId: this.hubId, pubKey: this.pubKey });
   phones = (): Promise<Array<{ deviceId: string; pairedAt: number }>> => this.call('GET', '/v1/hub/phones');
 
-  /** A QR for the phone to scan: who the hub is, a single-use token, and where the server is. */
-  async pairingQr(): Promise<{ qr: string; payload: string }> {
+  /** Mail addressed to this hub (signed GET). Items strictly newer than `since` (ms). */
+  inbox = (since: number): Promise<Array<{ id: string; from: string; kind: string; blob: string; at: number }>> =>
+    this.call('GET', `/v1/mail/inbox?since=${Math.max(0, Math.floor(since))}`);
+
+  /** Encrypted blob for one paired phone. The server sees only the opaque blob and the device id. */
+  sendToPhone = (deviceId: string, blob: string) => this.call('POST', '/v1/mail/send', { to: 'phone:' + deviceId, blob });
+
+  /**
+   * A QR for the phone to scan (v2): who the hub is, a single-use token, where the server is, and the group key.
+   * The group key never goes through the server. `invite` ties the phone to a Member the adult created.
+   */
+  async pairingQr(opts: { invite?: string; gk: Uint8Array }): Promise<{ qr: string; payload: string }> {
     await this.register();
     const token = randomBytes(16).toString('hex');
     await this.call('POST', '/v1/hub/pair-token', { hubId: this.hubId, token });
-    const payload = JSON.stringify({ v: 1, hub: this.hubId, key: this.pubKey, token, relay: this.relayUrl });
+    const body = {
+      v: 2,
+      hub: this.hubId,
+      key: this.pubKey,
+      token,
+      relay: this.relayUrl,
+      gk: b64(opts.gk),
+      ...(opts.invite ? { invite: opts.invite } : {}),
+    };
+    const payload = JSON.stringify(body);
     return { qr: await QRCode.toDataURL(payload, { margin: 1, width: 260 }), payload };
   }
 

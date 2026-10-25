@@ -3,43 +3,31 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light dark">
+  <meta name="color-scheme" content="dark light">
   <title>Beacon Hub</title>
   <link rel="icon" href="logo.png">
+  <script>
+    /* Set the saved theme before first paint. Dark is the default. */
+    try {
+      var t = localStorage.getItem('beacon:theme');
+      if (t === 'light' || t === 'system' || t === 'dark') document.documentElement.dataset.theme = t;
+    } catch (e) { /* storage blocked: keep the default */ }
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="app.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/shell.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/nodes.css">
+  <link rel="stylesheet" href="css/gateway.css">
+  <link rel="stylesheet" href="css/pages.css">
+  <link rel="stylesheet" href="css/family.css">
+  <link rel="stylesheet" href="css/mcp.css">
 </head>
 <body>
-  <div class="app">
-    <aside class="side">
-      <div class="brand">
-        <img class="mark" src="logo.png" width="28" height="28" alt="">
-        <div>
-          <strong>Beacon Hub</strong>
-          <span class="small muted">Family desk</span>
-        </div>
-      </div>
-      <nav id="nav" aria-label="Pages"></nav>
-      <div id="awakeRail" class="awake-rail" aria-label="Awake agents"></div>
-    </aside>
-    <main class="main">
-      <div class="wrap topbar">
-        <div id="situation" class="situation sit-calm" role="note" hidden></div>
-      </div>
-      <div class="wrap" id="view"></div>
-    </main>
-  </div>
-
-  <div id="sheet" class="sheet" hidden></div>
-  <div id="drawer" class="drawer" aria-hidden="true">
-    <div class="drawer-scrim" data-close="1"></div>
-    <aside class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawerTitle" tabindex="-1"></aside>
-  </div>
-  <div id="toast" class="toast" role="status" aria-live="polite"></div>
-
-  <script src="avatar.js"></script>
-  <script src="app.js"></script>
+  <div id="app" class="app"></div>
+  <noscript>Beacon Hub needs JavaScript.</noscript>
+  <script type="module" src="js/main.js"></script>
 </body>
 </html>

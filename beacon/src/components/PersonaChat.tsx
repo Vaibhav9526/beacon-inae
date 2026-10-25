@@ -27,7 +27,7 @@ interface Msg {
 
 let seq = 1;
 
-export function PersonaChat({ persona, onPhoto, incoming, bottomInset = 0, topPad = 16 }: { persona: PersonaKey; onPhoto?: () => void; incoming?: { n: number; text: string }; bottomInset?: number; topPad?: number }) {
+export function PersonaChat({ persona, onPhoto, incoming, bottomInset = 0, topPad = 16 }: { persona: PersonaKey; onPhoto?: () => void; incoming?: { n: number; text: string; note?: boolean }; bottomInset?: number; topPad?: number }) {
   const { p } = useTheme();
   const t = useT();
   const L = useLocal();
@@ -53,7 +53,7 @@ export function PersonaChat({ persona, onPhoto, incoming, bottomInset = 0, topPa
     setMsgs([{ id: 0, from: 'bot', text: L(def.greeting) }]);
   }, [persona, lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const ask = async (text: string) => {
+  const ask = async (text: string, guideId?: string) => {
     const q = text.trim();
     if (!q || busy) return;
     setInput('');
@@ -62,7 +62,7 @@ export function PersonaChat({ persona, onPhoto, incoming, bottomInset = 0, topPa
     setMsgs((m) => [...m, { id: seq++, from: 'me', text: q }]);
     let r: Reply;
     try {
-      r = await makeReply(persona, q, lang, needleReady ? needleEngine : null);
+      r = await makeReply(persona, q, lang, needleReady ? needleEngine : null, guideId);
     } catch {
       // never leave the chat stuck on "…"
       setBusy(false);
@@ -74,9 +74,15 @@ export function PersonaChat({ persona, onPhoto, incoming, bottomInset = 0, topPa
     setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 80);
   };
 
-  // text arriving from outside (a voice transcript, or a photo description) is asked like a typed question
+  // text arriving from outside (a voice transcript) is asked like a typed question; a note is only shown
   useEffect(() => {
-    if (incoming?.text) void ask(incoming.text);
+    if (!incoming?.text) return;
+    if (incoming.note) {
+      setMsgs((m) => [...m, { id: seq++, from: 'bot', text: incoming.text }]);
+      setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 80);
+      return;
+    }
+    void ask(incoming.text);
   }, [incoming?.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pill = (label: string, onPress: () => void, key?: React.Key) => (
@@ -132,7 +138,7 @@ export function PersonaChat({ persona, onPhoto, incoming, bottomInset = 0, topPa
       case 'chips':
         return (
           <Row key={i} style={{ flexWrap: 'wrap', gap: 6 }}>
-            {b.items.map((c, k) => pill(c.label, () => void ask(c.query), k))}
+            {b.items.map((c, k) => pill(c.label, () => void ask(c.query, c.guideId), k))}
           </Row>
         );
     }

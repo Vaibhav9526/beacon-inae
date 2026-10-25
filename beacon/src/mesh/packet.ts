@@ -19,6 +19,10 @@ export enum PacketType {
   Courier = 9,
   Alert = 10,
   Board = 11,
+  Road = 12,
+  Attest = 13,
+  Opaque = 14,
+  Shake = 15,
 }
 
 const F_RECIPIENT = 1;

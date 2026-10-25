@@ -27,6 +27,7 @@ const fakeFetch = (calls: Call[]) =>
   }) as typeof fetch;
 
 const RELAY = 'http://127.0.0.1:8787';
+const GK = new Uint8Array(32).fill(7);
 const utf8 = (s: string) => new TextEncoder().encode(s);
 
 const signedMsg = (c: Call) => {
@@ -59,7 +60,7 @@ test('register signs its request; the signature verifies with @noble/curves ed25
 test('pairingQr registers, posts a pair token and returns a scannable payload', async () => {
   const calls: Call[] = [];
   const link = newLink(calls);
-  const { qr, payload } = await link.pairingQr();
+  const { qr, payload } = await link.pairingQr({ gk: GK });
   assert.match(qr, /^data:image\/png;base64,/);
   const token = (JSON.parse(payload) as { token: string }).token;
   assert.equal(calls.length, 2, 'one call to register, one pair-token call');
@@ -71,7 +72,7 @@ test('pairingQr registers, posts a pair token and returns a scannable payload', 
   }
   assert.match(calls[1].body!, new RegExp(`"hubId":"${link.hubId}"`));
   assert.ok(calls[1].body!.includes(token));
-  assert.equal(payload, JSON.stringify({ v: 1, hub: link.hubId, key: link.pubKey, token, relay: RELAY }));
+  assert.equal(payload, JSON.stringify({ v: 2, hub: link.hubId, key: link.pubKey, token, relay: RELAY, gk: Buffer.from(GK).toString("base64") }));
 });
 
 test('send() pushes the short text with severity, signed', async () => {
@@ -115,4 +116,41 @@ test('a second BeaconLink in the same directory reuses the identity file', async
   assert.equal(readFileSync(file, 'utf8'), written, 'the secret on disk did not change');
   const fresh = new BeaconLink(mkdtempSync(join(tmpdir(), 'link-')), RELAY, fakeFetch(calls));
   assert.notEqual(fresh.hubId, first.hubId, 'a different directory silently mints a new identity');
+});
+
+test('pairingQr v2 carries the group key and an optional invite', async () => {
+  const link = newLink([]);
+  const { payload } = await link.pairingQr({ gk: GK, invite: 'ABCD2345' });
+  const body = JSON.parse(payload) as Record<string, unknown>;
+  assert.deepEqual(Object.keys(body), ['v', 'hub', 'key', 'token', 'relay', 'gk', 'invite']);
+  assert.equal(body.v, 2);
+  assert.equal(body.invite, 'ABCD2345');
+  assert.deepEqual(Buffer.from(body.gk as string, 'base64'), Buffer.from(GK));
+});
+
+test('sendToPhone posts an opaque blob to the phone mailbox, signed', async () => {
+  const calls: Call[] = [];
+  const link = newLink(calls);
+  await link.sendToPhone('dev123', 'AAAA');
+  assert.equal(calls.length, 1);
+  const c = calls[0];
+  assert.equal(c.url, `${RELAY}/v1/mail/send`);
+  assert.equal(c.method, 'POST');
+  assert.deepEqual(JSON.parse(c.body!), { to: 'phone:dev123', blob: 'AAAA' });
+  assert.ok(ed25519.verify(Buffer.from(c.headers['x-sig'], 'base64'), signedMsg(c), Buffer.from(c.headers['x-device'], 'base64')));
+});
+
+test('inbox GETs items newer than since, signed over the path without the query', async () => {
+  const calls: Call[] = [];
+  const items = [{ id: 'm1', from: 'phone:abc', kind: 'mail', blob: 'AAAA', at: 5 }];
+  const fetchFn = (async (url: string, init?: RequestInit) => {
+    calls.push({ url, method: init?.method, headers: (init?.headers ?? {}) as Record<string, string>, body: undefined });
+    return { ok: true, status: 200, text: async () => JSON.stringify(items) } as unknown as Response;
+  }) as typeof fetch;
+  const link = new BeaconLink(mkdtempSync(join(tmpdir(), 'link-')), RELAY, fetchFn);
+  assert.deepEqual(await link.inbox(42), items);
+  const c = calls[0];
+  assert.equal(c.url, `${RELAY}/v1/mail/inbox?since=42`);
+  assert.equal(c.method, 'GET');
+  assert.ok(ed25519.verify(Buffer.from(c.headers['x-sig'], 'base64'), signedMsg(c), Buffer.from(c.headers['x-device'], 'base64')));
 });

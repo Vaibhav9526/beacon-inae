@@ -23,6 +23,7 @@ import {
   verify,
 } from './packet';
 import type { Transport } from './transport';
+import type { OpaqueNote, RoadEvent, RoadReport, RoadStatus, ShakeEvent, ShakeVote } from './appTypes';
 
 // ---------- public data shapes ----------
 
@@ -99,6 +100,11 @@ export interface MeshEvents {
   sos: (m: SosMessage) => void;
   safe: (m: SafeMessage) => void;
   alert: (a: MeshAlert) => void;
+  /** a road report arrived, or its attester count changed */
+  road: (e: RoadEvent) => void;
+  /** an opaque sealed note arrived (the app decides whether it can open it) */
+  opaque: (n: OpaqueNote) => void;
+  shake: (e: ShakeEvent) => void;
   peers: () => void;
   delivered: (id: string) => void;
 }
@@ -152,7 +158,19 @@ const COURIER_MAX = 200;
 const COURIER_TTL_MS = 24 * 3600_000;
 const COURIER_MAX_BYTES = 16 * 1024;
 
+const SHAKE_TTL = 3;
+const SHAKE_MIN_GAP_MS = 20_000;
+const ROAD_MAX = 300;
+const ROAD_TTL_MS = 48 * 3600_000;
+const OPAQUE_MAX = 500;
+const OPAQUE_BLOB_MAX = 600;
+const OPAQUE_TTL_MS = 48 * 3600_000;
+const ATTEST_RADIUS_M = 500;
+const POSITION_FRESH_MS = 10 * 60_000;
+const ROAD_STATUSES = new Set<string>(['blocked', 'flooded', 'damaged', 'crowded', 'clear']);
+
 const PRIORITY_TYPES = new Set<PacketType>([
+  PacketType.Shake,
   PacketType.Sos,
   PacketType.Safe,
   PacketType.Alert,
@@ -169,14 +187,70 @@ const CACHED_TYPES = new Set<PacketType>([
   PacketType.Sos,
   PacketType.Safe,
   PacketType.Alert,
+  PacketType.Road,
+  PacketType.Attest,
+  // Opaque notes are cached too, but only after de-duplication (see ingestOpaque), so they are not listed here.
 ]);
 const TYPE_RANK: Partial<Record<PacketType, number>> = {
   [PacketType.Sos]: 0,
   [PacketType.Alert]: 1,
   [PacketType.Safe]: 2,
+  [PacketType.Road]: 2.5,
+  [PacketType.Attest]: 2.5,
   [PacketType.Public]: 3,
   [PacketType.Board]: 3,
+  [PacketType.Opaque]: 3,
 };
+
+const retentionFor = (t: PacketType) =>
+  t === PacketType.Road || t === PacketType.Attest ? ROAD_TTL_MS : t === PacketType.Opaque ? OPAQUE_TTL_MS : SYNC_RETENTION_MS;
+
+function distanceM(aLat: number, aLon: number, bLat: number, bLon: number) {
+  const r = Math.PI / 180;
+  const dLat = (bLat - aLat) * r;
+  const dLon = (bLon - aLon) * r;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(aLat * r) * Math.cos(bLat * r) * Math.sin(dLon / 2) ** 2;
+  return 12_742_000 * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+const inRange = (n: unknown, lo: number, hi: number): n is number => typeof n === 'number' && Number.isFinite(n) && n >= lo && n <= hi;
+const B64 = /^[A-Za-z0-9+/]+={0,2}$/;
+
+function cleanRoad(r: unknown): RoadReport | null {
+  const o = r as Partial<RoadReport> | null;
+  if (!o || typeof o !== 'object') return null;
+  if (typeof o.id !== 'string' || !/^[0-9a-f]{8}$/.test(o.id)) return null;
+  if (typeof o.status !== 'string' || !ROAD_STATUSES.has(o.status)) return null;
+  if (!inRange(o.lat, -90, 90) || !inRange(o.lon, -180, 180)) return null;
+  if (typeof o.seenAt !== 'number' || !Number.isFinite(o.seenAt)) return null;
+  const out: RoadReport = { id: o.id, status: o.status as RoadStatus, lat: o.lat, lon: o.lon, seenAt: o.seenAt };
+  if (typeof o.note === 'string' && o.note) out.note = o.note.slice(0, 120);
+  return out;
+}
+
+function cleanShake(v: unknown): ShakeVote | null {
+  const o = v as Partial<ShakeVote> | null;
+  if (!o || typeof o !== 'object') return null;
+  if (typeof o.id !== 'string' || !/^[0-9A-Za-z]{4,16}$/.test(o.id)) return null;
+  if (!inRange(o.lat, -90, 90) || !inRange(o.lon, -180, 180) || !inRange(o.peakMg, 0, 20000)) return null;
+  if (typeof o.startedAt !== 'number' || !Number.isFinite(o.startedAt)) return null;
+  return { id: o.id, lat: o.lat, lon: o.lon, peakMg: o.peakMg, startedAt: o.startedAt };
+}
+
+function cleanOpaque(tag: unknown, blob: unknown): { tag: string; blob: string } | null {
+  if (typeof tag !== 'string' || !/^[0-9a-f]{16}$/.test(tag)) return null;
+  if (typeof blob !== 'string' || blob.length === 0 || blob.length % 4 !== 0 || !B64.test(blob)) return null;
+  const pad = blob.endsWith('==') ? 2 : blob.endsWith('=') ? 1 : 0;
+  if ((blob.length / 4) * 3 - pad > OPAQUE_BLOB_MAX) return null;
+  return { tag, blob };
+}
+
+interface RoadEntry {
+  ev: RoadEvent;
+  ts: number;
+  attesters: Set<string>;
+  gateway: boolean;
+}
 
 interface OutboxItem {
   id: string;
@@ -215,6 +289,12 @@ export class MeshNode {
   private stops: (() => void)[] = [];
   private channels = new Set<string>();
   private sosRepeat: (() => void) | null = null;
+  private roads = new Map<string, RoadEntry>();
+  private orphanAttests = new Map<string, Set<string>>();
+  private attested = new Set<string>();
+  private opaque = new Map<string, OpaqueNote>();
+  private lastShake = new Map<string, number>();
+  private position: { lat: number; lon: number; at: number } | null = null;
   readonly stats = { relayed: 0, received: 0, duplicates: 0 };
 
   constructor(
@@ -335,6 +415,48 @@ export class MeshNode {
   broadcastAlert(alert: AlertBody, sig: Uint8Array) {
     const p = this.build(PacketType.Alert, jsonBytes({ a: alert, s: toBase64(sig) }));
     return this.originate(p);
+  }
+
+  /** Own recent position, used only for proof-of-presence attestations. Call on every location fix. */
+  setPosition(lat: number, lon: number) {
+    if (inRange(lat, -90, 90) && inRange(lon, -180, 180)) this.position = { lat, lon, at: this.sched.now() };
+  }
+
+  /** Flood a signed road report. Returns the packet id, or null when the report is malformed. */
+  sendRoad(report: RoadReport): string | null {
+    const r = cleanRoad(report);
+    if (!r) return null;
+    const p = this.build(PacketType.Road, jsonBytes({ id: r.id, s: r.status, la: r.lat, lo: r.lon, t: r.note, ts: r.seenAt }));
+    return this.originate(p);
+  }
+
+  /** Flood an end-to-end sealed note. tag: 16 hex chars; blobB64: base64, at most 600 bytes decoded. Null when malformed. */
+  sendOpaque(tag: string, blobB64: string): string | null {
+    const o = cleanOpaque(tag, blobB64);
+    if (!o) return null;
+    return this.originate(this.build(PacketType.Opaque, jsonBytes({ g: o.tag, b: o.blob })));
+  }
+
+  /** Short-range shake vote: 3 hops, not cached, at most one per 20 s from this node. Null when malformed or rate limited. */
+  sendShake(vote: ShakeVote): string | null {
+    const v = cleanShake(vote);
+    if (!v) return null;
+    const now = this.sched.now();
+    const last = this.lastShake.get(this.id);
+    if (last != null && now - last < SHAKE_MIN_GAP_MS) return null;
+    this.lastShake.set(this.id, now);
+    const p = this.build(PacketType.Shake, jsonBytes({ id: v.id, la: v.lat, lo: v.lon, g: v.peakMg, ts: v.startedAt }));
+    return this.originate({ ...p, ttl: SHAKE_TTL }); // TTL is not covered by the signature
+  }
+
+  /** Road reports currently held, newest first. */
+  roadEvents(): RoadEvent[] {
+    return [...this.roads.values()].map((e) => ({ ...e.ev })).sort((a, b) => b.receivedAt - a.receivedAt);
+  }
+
+  /** Opaque notes currently held, oldest first. */
+  opaqueNotes(): OpaqueNote[] {
+    return [...this.opaque.values()];
   }
 
   /** Queue a private message. Delivered over a live Noise session, or sealed to the recipient via couriers. */
@@ -498,6 +620,7 @@ export class MeshNode {
     }
     this.markSeen(key);
     this.stats.received++;
+    if (!this.admit(p)) return; // malformed or rate-limited: drop silently, never relay
 
     const mine = !p.recipient || equal(p.recipient, this.identity.peerId);
     if (p.type === PacketType.Fragment) {
@@ -506,6 +629,154 @@ export class MeshNode {
       this.dispatch(p, raw, link);
     }
     if (!fromFragment && p.type !== PacketType.SyncRequest) this.maybeRelay(p, raw, link, mine);
+  }
+
+  /** Structural check for the app-level types, plus the per-sender shake rate limit. */
+  private admit(p: Packet): boolean {
+    try {
+      if (p.type === PacketType.Road) return !!cleanRoad(this.roadFields(p));
+      if (p.type === PacketType.Attest) {
+        const b = parseJson<{ rid?: unknown }>(p.payload);
+        return typeof b.rid === 'string' && /^[0-9a-f]{8}$/.test(b.rid);
+      }
+      if (p.type === PacketType.Opaque) {
+        const b = parseJson<{ g?: unknown; b?: unknown }>(p.payload);
+        return !!cleanOpaque(b.g, b.b);
+      }
+      if (p.type === PacketType.Shake) {
+        if (!cleanShake(this.shakeFields(p))) return false;
+        if (p.ttl > SHAKE_TTL) return false; // shake votes never travel further than 3 hops
+        const from = toHex(p.sender);
+        const now = this.sched.now();
+        const last = this.lastShake.get(from);
+        if (last != null && now - last < SHAKE_MIN_GAP_MS) return false;
+        if (this.lastShake.size > 500) this.lastShake.delete(this.lastShake.keys().next().value as string);
+        this.lastShake.set(from, now);
+        return true;
+      }
+    } catch {
+      return false;
+    }
+    return true;
+  }
+
+  private roadFields(p: Packet): unknown {
+    const b = parseJson<{ id: string; s: string; la: number; lo: number; t?: string; ts: number }>(p.payload);
+    return { id: b.id, status: b.s, lat: b.la, lon: b.lo, note: b.t, seenAt: b.ts };
+  }
+
+  private shakeFields(p: Packet): unknown {
+    const b = parseJson<{ id: string; la: number; lo: number; g: number; ts: number }>(p.payload);
+    return { id: b.id, lat: b.la, lon: b.lo, peakMg: b.g, startedAt: b.ts };
+  }
+
+  private gatewayKey(key: Uint8Array | undefined) {
+    return !!key && (this.opts.trustedGateways ?? []).some((k) => equal(k, key));
+  }
+
+  private publishRoad(e: RoadEntry) {
+    e.ev.attesters = e.attesters.size;
+    e.ev.verified = e.attesters.size >= 2 || e.gateway;
+    this.emit('road', { ...e.ev, report: { ...e.ev.report } });
+  }
+
+  /** Store/update a road report. quiet = restoring from a snapshot (no event). */
+  private ingestRoad(p: Packet, own: boolean, quiet = false) {
+    const report = cleanRoad(this.roadFields(p));
+    if (!report) return;
+    const from = toHex(p.sender);
+    const old = this.roads.get(report.id);
+    if (old && (old.ev.from !== from || p.timestamp <= old.ts)) return; // first reporter wins, only newer updates replace
+    const peer = this.peers.get(from);
+    const gateway = !own && !!peer && verify(p, peer.signKey) && this.gatewayKey(peer.signKey);
+    const attesters = old?.attesters ?? this.orphanAttests.get(report.id) ?? new Set<string>();
+    this.orphanAttests.delete(report.id);
+    attesters.delete(from);
+    if (!old && this.roads.size >= ROAD_MAX) this.roads.delete(this.roads.keys().next().value as string);
+    const entry: RoadEntry = {
+      ev: { report, from, attesters: attesters.size, verified: false, hops: ORIGIN_TTL - p.ttl, receivedAt: this.sched.now() },
+      ts: p.timestamp,
+      attesters,
+      gateway,
+    };
+    this.roads.delete(report.id);
+    this.roads.set(report.id, entry);
+    if (!quiet) this.publishRoad(entry);
+    else entry.ev.verified = attesters.size >= 2 || gateway;
+  }
+
+  private ingestAttest(p: Packet, own: boolean, quiet = false) {
+    const b = parseJson<{ rid: string; k?: string }>(p.payload);
+    const from = toHex(p.sender);
+    if (own) this.attested.add(b.rid);
+    let key: Uint8Array | undefined = own ? this.identity.signing.publicKey : this.peers.get(from)?.signKey;
+    if (!key && typeof b.k === 'string') {
+      try {
+        key = fromBase64(b.k);
+      } catch {
+        return;
+      }
+    }
+    if (!key || key.length !== 32 || !verify(p, key)) return;
+    const e = this.roads.get(b.rid);
+    if (!e) {
+      let set = this.orphanAttests.get(b.rid);
+      if (!set) {
+        if (this.orphanAttests.size >= ROAD_MAX) this.orphanAttests.delete(this.orphanAttests.keys().next().value as string);
+        set = new Set();
+        this.orphanAttests.set(b.rid, set);
+      }
+      set.add(from);
+      return;
+    }
+    if (from === e.ev.from || e.attesters.has(from)) return;
+    e.attesters.add(from);
+    if (quiet) {
+      e.ev.attesters = e.attesters.size;
+      e.ev.verified = e.attesters.size >= 2 || e.gateway;
+    } else this.publishRoad(e);
+  }
+
+  /** Proof of presence: a direct neighbour of the reporter that is also near the reported spot vouches for the report, once. */
+  private maybeAttest(p: Packet, link: string | null) {
+    try {
+      if (!link || p.ttl !== ORIGIN_TTL) return; // only hops 0, i.e. in Bluetooth range of the reporter
+      const pos = this.position;
+      if (!pos || this.sched.now() - pos.at > POSITION_FRESH_MS) return;
+      if (Math.abs(this.sched.now() - p.timestamp) > 5 * 60_000) return; // old reports replayed by gossip sync are not "live"
+      const report = cleanRoad(this.roadFields(p));
+      if (!report || this.attested.has(report.id)) return;
+      const e = this.roads.get(report.id);
+      if (!e || e.ev.from !== toHex(p.sender)) return;
+      if (distanceM(pos.lat, pos.lon, report.lat, report.lon) > ATTEST_RADIUS_M) return;
+      this.attested.add(report.id);
+      this.originate(this.build(PacketType.Attest, jsonBytes({ rid: report.id, k: toBase64(this.identity.signing.publicKey) })));
+    } catch {
+      /* never throw from the network path */
+    }
+  }
+
+  private ingestOpaque(p: Packet, quiet = false) {
+    const b = parseJson<{ g: string; b: string }>(p.payload);
+    const o = cleanOpaque(b.g, b.b);
+    if (!o) return;
+    const key = o.tag + toHex(sha256(utf8(o.blob))).slice(0, 16);
+    if (this.opaque.has(key)) return;
+    const note: OpaqueNote = { tag: o.tag, blob: o.blob, from: toHex(p.sender), timestamp: p.timestamp, hops: ORIGIN_TTL - p.ttl };
+    this.opaque.set(key, note);
+    if (this.opaque.size > OPAQUE_MAX) this.opaque.delete(this.opaque.keys().next().value as string);
+    if (quiet) return;
+    this.remember(p, encode(p));
+    let n = 0;
+    for (const v of this.cache.values()) if (v.type === PacketType.Opaque) n++;
+    for (const [k, v] of this.cache) {
+      if (n <= OPAQUE_MAX) break;
+      if (v.type === PacketType.Opaque) {
+        this.cache.delete(k);
+        n--;
+      }
+    }
+    this.emit('opaque', { ...note });
   }
 
   private dispatch(p: Packet, raw: Uint8Array, link: string | null) {
@@ -519,6 +790,19 @@ export class MeshNode {
       case PacketType.Safe:
       case PacketType.Alert:
         if (CACHED_TYPES.has(p.type)) this.remember(p, raw);
+        this.emitLocal(p, false);
+        break;
+      case PacketType.Road:
+        this.remember(p, raw);
+        this.emitLocal(p, false);
+        this.maybeAttest(p, link);
+        break;
+      case PacketType.Attest:
+        this.remember(p, raw);
+        this.emitLocal(p, false);
+        break;
+      case PacketType.Opaque:
+      case PacketType.Shake:
         this.emitLocal(p, false);
         break;
       case PacketType.NoiseHandshake:
@@ -656,6 +940,15 @@ export class MeshNode {
           }
         });
         this.emit('alert', { ...b.a, verified });
+      } else if (p.type === PacketType.Road) {
+        this.ingestRoad(p, own);
+      } else if (p.type === PacketType.Attest) {
+        this.ingestAttest(p, own);
+      } else if (p.type === PacketType.Opaque) {
+        this.ingestOpaque(p);
+      } else if (p.type === PacketType.Shake) {
+        const vote = cleanShake(this.shakeFields(p));
+        if (vote) this.emit('shake', { vote, from, hops: Math.max(0, SHAKE_TTL - p.ttl), receivedAt: this.sched.now() });
       }
     } catch {
       /* malformed payload from a stranger: ignore */
@@ -928,7 +1221,11 @@ export class MeshNode {
       .filter(([k]) => !gcsHas(have, n, k))
       .sort((a, b) => (TYPE_RANK[a[1].type] ?? 9) - (TYPE_RANK[b[1].type] ?? 9) || b[1].ts - a[1].ts)
       .slice(0, SYNC_REPLY_MAX);
-    for (const [, v] of missing) this.transport.send(link, v.raw);
+    for (const [, v] of missing) {
+      const inner = v.raw.length > FRAGMENT_THRESHOLD ? decode(v.raw) : null;
+      if (inner) for (const f of fragment(v.raw, inner, randomBytes(8))) this.transport.send(link, encode(f));
+      else this.transport.send(link, v.raw);
+    }
   }
 
   // ---------- persistence (store-and-forward must survive an app restart) ----------
@@ -961,7 +1258,26 @@ export class MeshNode {
         if (p) this.couriers.set(c.tag + toHex(p.payload.slice(16, 24)), { tag: c.tag, raw, expires: c.expires });
       }
       for (const c of s.cache as { k: string; raw: string; ts: number; type: PacketType }[]) {
-        if (now - c.ts < SYNC_RETENTION_MS) this.cache.set(c.k, { raw: fromBase64(c.raw), ts: c.ts, type: c.type });
+        if (now - c.ts < retentionFor(c.type)) this.cache.set(c.k, { raw: fromBase64(c.raw), ts: c.ts, type: c.type });
+      }
+      // rebuild road reports, attestations and opaque notes from the carried packets (quietly: the app reads roadEvents()/opaqueNotes())
+      const carried = [...this.cache.values()]
+        .filter((v) => v.type === PacketType.Road || v.type === PacketType.Attest || v.type === PacketType.Opaque)
+        .sort((a, b) => a.ts - b.ts);
+      for (const type of [PacketType.Road, PacketType.Attest, PacketType.Opaque]) {
+        for (const v of carried) {
+          if (v.type !== type) continue;
+          try {
+            const p = decode(v.raw);
+            if (!p) continue;
+            const own = equal(p.sender, this.identity.peerId);
+            if (type === PacketType.Road) this.ingestRoad(p, own, true);
+            else if (type === PacketType.Attest) this.ingestAttest(p, own, true);
+            else this.ingestOpaque(p, true);
+          } catch {
+            /* skip a bad entry */
+          }
+        }
       }
       for (const p of s.peers as { id: string; nickname: string; noiseKey: string; signKey: string; lastSeen: number }[]) {
         // restored peers are known but not reachable until they announce again (direct is false)
@@ -993,7 +1309,10 @@ export class MeshNode {
 
   private housekeeping() {
     const now = this.sched.now();
-    for (const [k, v] of this.cache) if (now - v.ts > SYNC_RETENTION_MS) this.cache.delete(k);
+    for (const [k, v] of this.cache) if (now - v.ts > retentionFor(v.type)) this.cache.delete(k);
+    for (const [k, e] of this.roads) if (now - e.ts > ROAD_TTL_MS) this.roads.delete(k);
+    for (const [k, n] of this.opaque) if (now - n.timestamp > OPAQUE_TTL_MS) this.opaque.delete(k);
+    for (const [k, t] of this.lastShake) if (now - t > SHAKE_MIN_GAP_MS) this.lastShake.delete(k);
     for (const [k, c] of this.couriers) if (now > c.expires) this.couriers.delete(k);
     for (const [k, a] of this.assemblies) if (now - a.started > FRAGMENT_TIMEOUT_MS) this.assemblies.delete(k);
     for (const [to, q] of this.outbox) {

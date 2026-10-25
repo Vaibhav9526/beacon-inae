@@ -145,11 +145,15 @@ let ortMod: typeof import('onnxruntime-react-native') | null | undefined;
 function ort(): typeof import('onnxruntime-react-native') | null {
   if (ortMod !== undefined) return ortMod;
   // the package throws at import when its native half is missing, so look for that half first
-  if (!NativeModules.Onnxruntime) return (ortMod = null);
+  if (!NativeModules.Onnxruntime) {
+    console.warn('[vlm] NativeModules.Onnxruntime is missing; keys:', Object.keys(NativeModules).filter((k) => /onnx|ort/i.test(k)).join(',') || 'none');
+    return (ortMod = null);
+  }
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     ortMod = require('onnxruntime-react-native');
-  } catch {
+  } catch (e) {
+    console.warn('[vlm] onnxruntime failed to load:', e instanceof Error ? e.message : String(e));
     ortMod = null;
   }
   return ortMod ?? null;

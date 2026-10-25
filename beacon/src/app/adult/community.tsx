@@ -39,7 +39,8 @@ export default function Community() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const channel = mesh.channels[level] ?? mesh.channels[0] ?? 'geo:local';
-  const chat = useMemo(() => mesh.chat.filter((m) => m.channel === channel || m.channel === 'geo:local').sort((a, b) => a.timestamp - b.timestamp), [mesh.chat, channel]);
+  // family drill traffic (BCN-DRILL1:) is handled by the drill screen, not shown as chat
+  const chat = useMemo(() => mesh.chat.filter((m) => (m.channel === channel || m.channel === 'geo:local') && !m.text.startsWith('BCN-DRILL1:')).sort((a, b) => a.timestamp - b.timestamp), [mesh.chat, channel]);
   const dm = useMemo(() => (privateTo ? mesh.priv.filter((m) => m.from === privateTo) : []), [mesh.priv, privateTo]);
 
   // posts other gateways uploaded to the server (so people beyond Bluetooth range still see them)

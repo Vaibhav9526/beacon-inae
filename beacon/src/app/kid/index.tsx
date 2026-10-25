@@ -85,7 +85,7 @@ export default function KidHome() {
       <Appear index={2}>
         <Row style={{ gap: 10 }}>
           {quick.map((q) => (
-            <Press key={q.label} accessibilityRole="button" accessibilityLabel={q.label} onPress={() => router.push(q.go as never)} style={{ flex: 1 }}>
+            <Press key={q.label} accessibilityRole="button" accessibilityLabel={q.label} onPress={() => router.navigate(q.go as never)} style={{ flex: 1 }}>
               <Card tint={q.tint} style={{ alignItems: 'center', gap: 8, paddingVertical: 14, paddingHorizontal: 6, borderRadius: 22 }}>
                 <Icon name={q.icon} size={22} color={p.tint[q.tint].ink} />
                 <Txt size={12} weight="600" color={p.tint[q.tint].ink} style={{ textAlign: 'center' }}>
@@ -101,7 +101,7 @@ export default function KidHome() {
       <PlanGrid items={plan} />
 
       <Appear index={6}>
-        <Press onPress={() => router.push('/kid/didi' as never)}>
+        <Press onPress={() => router.navigate('/kid/didi' as never)}>
           <Card tint="yellow" style={{ flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, borderRadius: 22 }}>
             <PixelAvatar spec={cast('didi')} size={44} bg="rgba(255,255,255,0.6)" animated />
             <View style={{ flex: 1 }}>

@@ -46,6 +46,8 @@ export function PhotoTriage({ uri, onClose, onSummary }: Props) {
 
   const [visionRunning, setVisionRunning] = useState(!!uri);
   const [desc, setDesc] = useState<string | null>(null);
+  // the model's suggestion only: it is never the choice until the person taps that chip
+  const [suggested, setSuggested] = useState<TriageChoiceId | null>(null);
   const [choice, setChoice] = useState<TriageChoiceId | null>(null);
   const [answers, setAnswers] = useState<Record<string, boolean>>({});
   const [showResult, setShowResult] = useState(false);
@@ -59,7 +61,7 @@ export function PhotoTriage({ uri, onClose, onSummary }: Props) {
       setVisionRunning(false);
       if (!r) return;
       setDesc(r.description);
-      setChoice((cur) => cur ?? r.choice); // pre-select only; the person confirms
+      setSuggested(r.choice);
     });
     return () => {
       alive = false;
@@ -85,11 +87,13 @@ export function PhotoTriage({ uri, onClose, onSummary }: Props) {
     if (result && choice) {
       const c = getTriageChoice(choice);
       const guide = result.guideIds[0] ? getGuide(result.guideIds[0]) : undefined;
-      onSummary?.(`Photo check: ${c?.label[0] ?? choice}${guide ? `, ${guide.title[0]}` : ''} (${result.severity}).`);
+      // the guided check never looked at the photo, so the note says it was built from the person's answers
+      onSummary?.(`Guided check from my answers (not the photo): ${c?.label[0] ?? choice}${guide ? `, ${guide.title[0]}` : ''}. Result: ${SEVERITY_EN[result.severity]}.`);
     }
     onClose();
   };
 
+  const SEVERITY_EN: Record<Severity, string> = { emergency: 'call 112 now', urgent: 'see a doctor today', home: 'treat at home' };
   const severityStyle: Record<Severity, { bg: string; ink: string; title: string }> = {
     emergency: { bg: p.danger, ink: '#fff', title: tr('Emergency: call 112 now', 'आपात: अभी 112 पर कॉल करें') },
     urgent: { bg: p.tint.yellow.bg, ink: p.tint.yellow.ink, title: tr('See a doctor today', 'आज डॉक्टर को दिखाएँ') },
@@ -115,13 +119,18 @@ export function PhotoTriage({ uri, onClose, onSummary }: Props) {
                 {t('describingPhoto')}
               </Txt>
             ) : desc ? (
-              <Txt size={14}>
-                {tr('I can see: ', 'मुझे दिख रहा है: ')}
-                {desc}
-              </Txt>
+              <>
+                <Txt size={14}>
+                  {tr('Possible: ', 'संभावित: ')}
+                  {desc}
+                </Txt>
+                <Txt size={12} color={p.muted}>
+                  {tr('The smart description can be wrong. Choose what you see below.', 'स्मार्ट विवरण गलत हो सकता है। नीचे चुनें आपको क्या दिख रहा है।')}
+                </Txt>
+              </>
             ) : (
               <Txt size={13} color={p.muted}>
-                {tr('Tell us what you see below.', 'नीचे बताएँ आपको क्या दिख रहा है।')}
+                {tr('The smart description is not available. Tell us what you see below.', 'स्मार्ट विवरण उपलब्ध नहीं है। नीचे बताएँ आपको क्या दिख रहा है।')}
               </Txt>
             )}
           </Card>
@@ -139,6 +148,7 @@ export function PhotoTriage({ uri, onClose, onSummary }: Props) {
             <Row style={{ flexWrap: 'wrap', gap: 8 }}>
               {TRIAGE_CHOICES.map((c) => {
                 const active = choice === c.id;
+                const isSuggestion = suggested === c.id && !active;
                 const tint = p.tint[CHOICE_TINT[c.id]];
                 return (
                   <Pressable
@@ -152,13 +162,18 @@ export function PhotoTriage({ uri, onClose, onSummary }: Props) {
                     <Txt size={13} weight="500" color={tint.ink}>
                       {c.label[idx]}
                     </Txt>
+                    {isSuggestion ? (
+                      <Txt size={11} weight="600" color={tint.ink}>
+                        {tr('suggested', 'सुझाव')}
+                      </Txt>
+                    ) : null}
                   </Pressable>
                 );
               })}
             </Row>
-            {choice && desc && matchesDescription(choice, desc) ? (
+            {suggested && !choice ? (
               <Txt size={12} color={p.muted}>
-                {tr('Highlighted from the photo. Tap another if it is not right.', 'फ़ोटो से चुना गया है। सही न हो तो दूसरा चुनें।')}
+                {tr('Suggested by the smart description. Tap it to confirm, or tap what fits.', 'स्मार्ट विवरण से सुझाव। पक्का करने के लिए उसे दबाएँ, या जो सही हो वह दबाएँ।')}
               </Txt>
             ) : null}
 
@@ -196,6 +211,9 @@ export function PhotoTriage({ uri, onClose, onSummary }: Props) {
           </>
         ) : result ? (
           <>
+            <Txt size={13} weight="600" color={p.text}>
+              {tr('This check does not look at your photo. It uses your answers.', 'यह जाँच आपकी फ़ोटो को नहीं देखती। यह आपके जवाबों से चलती है।')}
+            </Txt>
             <View style={{ backgroundColor: severityStyle[result.severity].bg, borderRadius: radius.xl, padding: 16, gap: 12 }}>
               <Txt size={18} weight="700" color={severityStyle[result.severity].ink}>
                 {severityStyle[result.severity].title}
@@ -259,9 +277,3 @@ export function PhotoTriage({ uri, onClose, onSummary }: Props) {
   );
 }
 
-// true when the vision sentence mentions this choice's words, so the chip gets a small "from photo" note
-function matchesDescription(choice: TriageChoiceId, desc: string): boolean {
-  const c = getTriageChoice(choice);
-  const lower = desc.toLowerCase();
-  return !!c && c.keywords.some((k) => k && lower.includes(k));
-}

@@ -62,7 +62,7 @@ export default function AdultHome() {
               <Text style={{ fontFamily: fonts.regular, fontSize: 12, color: p.muted }}>{dateLine()}</Text>
             </View>
           </Row>
-          <Press accessibilityRole="button" accessibilityLabel={lang === 'hi' ? 'और' : 'More'} onPress={() => router.push('/adult/more' as never)} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: p.cardAlt, alignItems: 'center', justifyContent: 'center' }}>
+          <Press accessibilityRole="button" accessibilityLabel={lang === 'hi' ? 'और' : 'More'} onPress={() => router.navigate('/more' as never)} style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: p.cardAlt, alignItems: 'center', justifyContent: 'center' }}>
             <Icon name="more" size={20} />
           </Press>
         </Row>

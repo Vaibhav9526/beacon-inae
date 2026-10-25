@@ -1,3 +1,4 @@
+import { pollMs } from './lifeboat';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { nearestCity } from '../kb/hazards';
@@ -92,7 +93,7 @@ export async function loadForecast(opts: { force?: boolean } = {}): Promise<Load
       const age = Date.now() - cached.fetchedAt;
       // a copy from before midnight starts on yesterday, so it is only fresh on the day it was fetched
       const sameDay = new Date(cached.fetchedAt).toDateString() === new Date().toDateString();
-      if (age >= 0 && age < FRESH_MS && sameDay) return { forecast: cached, stale: false };
+      if (age >= 0 && age < pollMs(FRESH_MS) && sameDay) return { forecast: cached, stale: false };
     }
     const loc = await resolveLocation();
     const fetchedAt = Date.now();

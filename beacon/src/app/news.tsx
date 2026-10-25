@@ -2,18 +2,18 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Image, View } from 'react-native';
-import { AlertCard } from '../../components/AlertCard';
-import { Bell } from '../../components/Deco';
-import { Icon } from '../../components/Icon';
-import { Screen } from '../../components/Screen';
-import { SkeletonList } from '../../components/Skeleton';
-import { Appear, Badge, Btn, Card, Chip, Row, Txt, useTheme } from '../../components/ui';
-import { useT } from '../../i18n';
-import { useAlerts } from '../../services/alerts';
-import { type NewsCard, type ReportView, cloud, cloudConfigured } from '../../services/cloud';
-import { getFix } from '../../services/location';
-import { vote } from '../../services/reports';
-import { severityColor } from '../../theme';
+import { AlertCard } from '../components/AlertCard';
+import { Bell } from '../components/Deco';
+import { Icon } from '../components/Icon';
+import { Screen } from '../components/Screen';
+import { SkeletonList } from '../components/Skeleton';
+import { Appear, Badge, Btn, Card, Chip, Row, Txt, useTheme } from '../components/ui';
+import { useT } from '../i18n';
+import { useAlerts } from '../services/alerts';
+import { type NewsCard, type ReportView, cloud, cloudConfigured } from '../services/cloud';
+import { getFix } from '../services/location';
+import { vote } from '../services/reports';
+import { severityColor } from '../theme';
 
 /** ink colour for text on the tinted news cards */
 const INK = '#0A0A0C';
@@ -83,7 +83,7 @@ export default function News() {
   const badge = (b?: string) => (b === 'community-verified' ? <Badge soft label={t('communityVerified')} color={p.ok} /> : b === 'disputed' ? <Badge soft label={t('disputed')} color={p.warn} /> : <Badge soft label={t('newReport')} color={p.muted} />);
 
   return (
-    <Screen back={false} title={t('newsTitle')} right={<Btn size="sm" kind="ghost" icon="refresh" label="" onPress={() => void load()} disabled={loading} />}>
+    <Screen back title={t('newsTitle')} right={<Btn size="sm" kind="ghost" icon="refresh" label="" onPress={() => void load()} disabled={loading} />}>
       <Row style={{ gap: 6, flexWrap: 'wrap' }}>
         <Chip icon="news" label={t('tabNews')} active={tab === 'news'} onPress={() => setTab('news')} />
         <Chip icon="camera" label={t('reportsTitle')} active={tab === 'reports'} onPress={() => setTab('reports')} />
