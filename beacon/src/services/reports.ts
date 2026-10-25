@@ -112,7 +112,10 @@ export async function flushReports(): Promise<number> {
       else await cleanup(item);
     }
   }
-  await writeQueue(keep);
+  // re-read: a report may have been queued by submitReport while the uploads above were running
+  const processed = new Set(q.map((x) => x.id));
+  const latest = await readQueue();
+  await writeQueue([...latest.filter((x) => !processed.has(x.id)), ...keep]);
   return sent;
 }
 

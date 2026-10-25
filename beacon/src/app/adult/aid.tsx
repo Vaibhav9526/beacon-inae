@@ -38,7 +38,7 @@ export default function Aid() {
     setCamera(false);
     if (!pic) return;
     setLooking(true);
-    const text = await describeImage(pic.uri);
+    const text = await describeImage(pic.uri).catch(() => null);
     setLooking(false);
     if (text) say(text);
     else setChoices(true); // no vision model on this phone: let the person say what they see

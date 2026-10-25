@@ -34,7 +34,7 @@ export default function KidHome() {
   ];
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: p.bg }} contentContainerStyle={{ paddingTop: insets.top + 12, paddingHorizontal: 16, paddingBottom: 120, gap: 14 }} showsVerticalScrollIndicator={false}>
+    <ScrollView style={{ flex: 1, backgroundColor: p.bg }} contentContainerStyle={{ paddingTop: insets.top + 12, paddingHorizontal: 16, paddingBottom: 88 + insets.bottom, gap: 14 }} showsVerticalScrollIndicator={false}>
       <Appear>
         <Row style={{ justifyContent: 'space-between' }}>
           <View style={{ gap: 8, flex: 1 }}>

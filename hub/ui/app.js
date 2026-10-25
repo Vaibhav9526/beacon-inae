@@ -8,10 +8,9 @@
   var TOKEN = readToken();
 
   var PASTELS = ['pink', 'yellow', 'blue', 'green', 'lilac', 'peach'];
-  var GROUPS = ['Disaster', 'Help', 'Medicine', 'Child', 'Prepare'];
   var ROUTES = [
     { id: 'agents', label: 'Agents' },
-    { id: 'templates', label: 'Templates' },
+    { id: 'vault', label: 'Vault' },
     { id: 'activity', label: 'Activity' },
     { id: 'health', label: 'Health' },
     { id: 'connections', label: 'Connections' }
@@ -27,7 +26,9 @@
 
   var ICON_PATHS = {
     agents: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20c1-3.6 3.6-5.5 7-5.5s6 1.9 7 5.5"/>',
-    templates: '<rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/>',
+    vault: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="12" cy="12" r="3.2"/><path d="M12 8.8v-1.1M12 16.3v-1.1M8.8 12H7.7M16.3 12h-1.1"/>',
+    send: '<path d="M21 4L3.5 11l7 2.5L13 20.5 21 4z"/><path d="M10.5 13.5L21 4"/>',
+    phone: '<rect x="7" y="2.5" width="10" height="19" rx="2.5"/><path d="M11 18.5h2"/>',
     activity: '<path d="M3 12h4l2.5-6 5 12 2.5-6H21"/>',
     health: '<path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.3a4.3 4.3 0 0 1 7.5 2.5C19.5 15.4 12 20 12 20z"/>',
     connections: '<path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1"/>',
@@ -50,6 +51,10 @@
   var brainPick = null;
   var brainKey = '';
   var toastTimer = null;
+  var vault = { q: '', group: 'all', level: 'all' };
+  var adding = {};
+  var drawerId = null;
+  var drawerReturn = null;
 
   var view = document.getElementById('view');
   var nav = document.getElementById('nav');
@@ -280,13 +285,15 @@
     });
     var pages = {
       agents: agentsPage,
-      templates: templatesPage,
+      vault: vaultPage,
       activity: activityPage,
       health: healthPage,
       connections: connectionsPage
     };
     view.replaceChildren(pages[r]());
+    if (r === 'vault') paintVault();
     renderSheet();
+    renderDrawer();
     enterNext = false;
   }
 
@@ -304,13 +311,13 @@
     var page = h('section', null, [
       head('Agents', 'Watchers that keep an eye on your family and speak up when it matters.', [
         btn('Check now', { kind: 'ghost', icon: 'zap', onclick: tickNow }),
-        btn('Add agent', { icon: 'plus', onclick: function () { go('templates'); } })
+        btn('Add agent', { icon: 'vault', onclick: function () { go('vault'); } })
       ])
     ]);
     if (!agents.length) {
       page.appendChild(empty('No agents yet',
-        'Pick a template to start watching something, like heat at home or a school run.',
-        btn('Browse templates', { icon: 'templates', onclick: function () { go('templates'); } })));
+        'Pick a ready agent from the vault to start watching something, like heat at home or a school run.',
+        btn('Open the vault', { icon: 'vault', onclick: function () { go('vault'); } })));
       return page;
     }
     var grid = h('div', { class: 'grid' });
@@ -416,61 +423,301 @@
     ]);
   }
 
-  /* ---------- Templates ---------- */
+  /* ---------- Vault ---------- */
 
-  function templatesPage() {
-    var have = {};
-    (state.agents || []).forEach(function (a) { if (a.templateId) have[a.templateId] = true; });
+  var VAULT_GROUPS = [['all', 'All'], ['disaster', 'Disaster'], ['help', 'Help'], ['medicine', 'Medicine'], ['child', 'Child'], ['prepare', 'Prepare']];
+  var VAULT_LEVELS = [['all', 'Any level'], ['starter', 'Starter'], ['guardian', 'Guardian'], ['expert', 'Expert']];
+  var GROUP_TINT = { disaster: 'blue', help: 'pink', medicine: 'green', child: 'yellow', prepare: 'lilac' };
+  var LEVEL_WORDS = { starter: 'Starter', guardian: 'Guardian', expert: 'Expert' };
+  var NEED_ICON = { health: 'health', telegram: 'send', phone: 'phone' };
+  var NEED_WORDS = { health: 'Needs health readings', telegram: 'Needs the Telegram group', phone: 'Needs a paired phone' };
+  var OP_WORDS = { '>': 'above', '>=': 'at least', '<': 'below', '<=': 'at most', '==': 'is', '!=': 'is not', '=': 'is' };
+  var METRIC_WORDS = {
+    temp_c: 'temperature', feels_like_c: 'feels-like temperature', humidity_pct: 'humidity',
+    heat_index_c: 'heat index', wind_kmh: 'wind speed', wind_gust_kmh: 'wind gusts',
+    rain_mm_24h: 'rain in 24 hours', rain_mm_now: 'rain right now', uv_index: 'UV index',
+    aqi: 'air quality index', pm25: 'PM2.5 fine dust',
+    quake_max_mag: 'largest quake magnitude', quake_nearest_km: 'nearest quake (km)', quake_count: 'number of quakes',
+    official_alert_count: 'active official alerts', official_alert_max: 'official alert level',
+    water_days: 'water stock (days)', food_days: 'food stock (days)', medicine_days: 'medicine stock (days)'
+  };
+  var STATUS_WORDS = ['ok', 'needs attention', 'urgent'];
+  var ALERT_WORDS = ['info', 'watch', 'warning', 'severe'];
+  var SEVERITY_WORDS = { info: 'a note', watch: 'a watch note', warning: 'a warning', severe: 'a severe alert' };
 
-    var groups = {};
-    (state.templates || []).forEach(function (t) {
-      var g = t.group || 'Other';
-      groups[g] = groups[g] || [];
-      groups[g].push(t);
-    });
-    var order = GROUPS.concat(Object.keys(groups).filter(function (g) { return GROUPS.indexOf(g) < 0; }));
+  function findTpl(id) {
+    return ((state && state.templates) || []).filter(function (x) { return x.id === id; })[0];
+  }
 
-    var page = h('section', null, [
-      head('Templates', 'Ready-made agents for common moments. Add one, then tune it in plain words.')
+  function isAdded(id) {
+    return ((state && state.agents) || []).some(function (a) { return a.templateId === id; });
+  }
+
+  function tintOf(t) {
+    return GROUP_TINT[String(t.group || '').toLowerCase()] || 'blue';
+  }
+
+  // "hr:Maa" -> "Maa's heart rate"; plain metrics get a readable name.
+  function metricWords(m) {
+    var i = m.indexOf(':');
+    if (i > 0) {
+      var kind = m.slice(0, i);
+      var who = m.slice(i + 1);
+      var poss = who + "'s";
+      if (kind === 'hr') return poss + ' heart rate';
+      if (kind === 'spo2') return poss + ' oxygen (SpO2)';
+      if (kind === 'steps') return poss + ' steps';
+      if (kind === 'sleep_h') return poss + ' sleep (hours)';
+      if (kind === 'health_status') return poss + ' health status';
+      if (kind === 'minutes_to_dose') return 'minutes until the ' + who + ' dose';
+    }
+    return METRIC_WORDS[m] || m.replace(/_/g, ' ');
+  }
+
+  function condWords(c) {
+    var m = c.metric;
+    var value = String(c.value);
+    if (m.indexOf('health_status:') === 0) value = STATUS_WORDS[c.value] || value;
+    if (m.indexOf('official_alert_max') === 0) value = ALERT_WORDS[c.value] || value;
+    return metricWords(m) + ' ' + (OP_WORDS[c.op] || c.op) + ' ' + value;
+  }
+
+  // Rules in plain words, e.g. "When heat index above 41 and Maa's heart rate above 110, send a severe alert."
+  function ruleWords(r) {
+    var w = r.when || {};
+    var joined = (w.conditions || []).map(condWords).join(w.mode === 'any' ? ' or ' : ' and ');
+    if (!joined) return r.message || '';
+    return 'When ' + joined + ', send ' + (SEVERITY_WORDS[r.severity] || 'an alert') + '.';
+  }
+
+  function needIcon(n) {
+    return icon(NEED_ICON[n] || 'zap');
+  }
+
+  function vaultMatches(t) {
+    if (vault.group !== 'all' && String(t.group).toLowerCase() !== vault.group) return false;
+    if (vault.level !== 'all' && t.level !== vault.level) return false;
+    var q = vault.q.trim().toLowerCase();
+    if (!q) return true;
+    var hay = [t.name, t.summary, t.about, t.who, (t.watches || []).join(' '), (t.sources || []).join(' ')]
+      .join(' ').toLowerCase();
+    return q.split(/\s+/).every(function (w) { return hay.indexOf(w) >= 0; });
+  }
+
+  function vaultPage() {
+    var page = h('section', { class: 'vault' }, [
+      h('header', { class: 'head vault-head' }, [
+        h('div', null, [
+          h('h1', null, 'Vault'),
+          h('p', { class: 'muted' }, 'Ready agents, each one explained. Open one to see what it watches and what it would tell you.')
+        ]),
+        h('div', { class: 'vault-door', 'aria-hidden': 'true', html: VAULT_DOOR_SVG })
+      ])
     ]);
     if (!state.templates || !state.templates.length) {
-      page.appendChild(empty('No templates yet', 'Templates ship with the hub. Check that the hub installed correctly.'));
+      page.appendChild(empty('The vault is empty', 'Ready agents ship with the hub. Check that the hub installed correctly.'));
       return page;
     }
-    var i = 0;
-    order.forEach(function (g) {
-      if (!groups[g]) return;
-      page.appendChild(h('h2', { class: 'group-title' }, g));
-      var grid = h('div', { class: 'grid' });
-      groups[g].forEach(function (t) {
-        grid.appendChild(anim(templateCard(t, !!have[t.id], i), i));
-        i++;
-      });
-      page.appendChild(grid);
-    });
+    function chipRow(label, list, key) {
+      return h('div', { class: 'vchips', role: 'group', 'aria-label': label }, list.map(function (x) {
+        var on = vault[key] === x[0];
+        return h('button', {
+          type: 'button', class: 'vchip' + (on ? ' on' : ''), 'aria-pressed': on ? 'true' : 'false',
+          onclick: function () { vault[key] = x[0]; render(); }
+        }, x[1]);
+      }));
+    }
+    page.appendChild(h('div', { class: 'vault-tools' }, [
+      h('input', {
+        type: 'search', class: 'vsearch', placeholder: 'Search by name, what it watches, or who it helps',
+        'aria-label': 'Search the vault', value: vault.q,
+        oninput: function () { vault.q = this.value; paintVault(); }
+      }),
+      chipRow('Group', VAULT_GROUPS, 'group'),
+      chipRow('Level', VAULT_LEVELS, 'level')
+    ]));
+    page.appendChild(h('p', { class: 'small muted vcount', id: 'vaultCount' }, ''));
+    page.appendChild(h('div', { class: 'grid', id: 'vaultGrid' }));
     return page;
   }
 
-  function templateCard(t, added, i) {
+  function paintVault() {
+    var grid = document.getElementById('vaultGrid');
+    var count = document.getElementById('vaultCount');
+    if (!grid || !state) return;
+    var all = state.templates || [];
+    var list = all.filter(vaultMatches);
+    if (count) {
+      count.textContent = list.length === all.length
+        ? all.length + ' ready agents'
+        : 'Showing ' + list.length + ' of ' + all.length;
+    }
+    if (!list.length) {
+      grid.replaceChildren(h('div', { class: 'empty' }, [
+        h('h2', null, 'Nothing matches'),
+        h('p', null, 'Try another word, or clear the filters.')
+      ]));
+      return;
+    }
+    grid.replaceChildren.apply(grid, list.map(function (t, i) {
+      return anim(vaultCard(t, i, isAdded(t.id)), i);
+    }));
+  }
+
+  function vaultCard(t, i, added) {
     var canvas = h('canvas', { class: 'pixel', width: 16, height: 16, 'aria-hidden': 'true' });
     drawAvatar(canvas, t.avatar);
-    return h('article', { class: 'card p-' + PASTELS[i % PASTELS.length] }, [
+    var level = t.level || 'starter';
+    var needs = (t.needs || []).map(function (n) {
+      return h('span', { class: 'need', title: NEED_WORDS[n] || n, 'aria-label': NEED_WORDS[n] || n, html: needIcon(n) });
+    });
+    return h('article', {
+      class: 'card vault-card p-' + tintOf(t),
+      role: 'button',
+      tabindex: '0',
+      'aria-label': 'Open ' + t.name,
+      onclick: function () { openDrawer(t.id); },
+      onkeydown: function (e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrawer(t.id); }
+      }
+    }, [
       h('div', { class: 'agent-top' }, [
         h('div', { class: 'av' }, canvas),
         h('div', { class: 'grow' }, [h('h3', { class: 'name' }, t.name)])
       ]),
-      h('p', { class: 'small', style: 'margin-top:12px' }, t.summary || ''),
+      h('p', { class: 'small vsum' }, t.summary || ''),
       h('div', { class: 'card-foot' }, [
-        h('span', { class: 'small muted' }, t.group || ''),
-        added
-          ? btn('Added', { kind: 'ghost', sm: true, icon: 'check', disabled: true })
-          : btn('Add', {
-              sm: true, icon: 'plus',
-              onclick: function () { act('POST', '/api/agents', { templateId: t.id }, 'Added ' + t.name); }
-            })
+        h('span', { class: 'needs' }, needs),
+        h('span', { class: 'row-inline-sm' }, [
+          added ? badge('In my agents', true) : null,
+          h('span', { class: 'badge lvl' }, LEVEL_WORDS[level] || 'Starter')
+        ])
       ])
     ]);
   }
+
+  /* ---------- Vault drawer ---------- */
+
+  function openDrawer(id) {
+    var d = document.getElementById('drawer');
+    if (!d || !findTpl(id)) return;
+    drawerReturn = document.activeElement;
+    drawerId = id;
+    d.classList.add('open');
+    d.setAttribute('aria-hidden', 'false');
+    renderDrawer();
+    var close = d.querySelector('.drawer-close');
+    if (close) close.focus();
+  }
+
+  function closeDrawer() {
+    var d = document.getElementById('drawer');
+    if (!d || !d.classList.contains('open')) return;
+    d.classList.remove('open');
+    d.setAttribute('aria-hidden', 'true');
+    drawerId = null;
+    if (drawerReturn && drawerReturn.focus) drawerReturn.focus();
+    drawerReturn = null;
+  }
+
+  function renderDrawer() {
+    var d = document.getElementById('drawer');
+    if (!d || !d.classList.contains('open') || !drawerId) return;
+    var t = findTpl(drawerId);
+    if (!t) { closeDrawer(); return; }
+    var panel = d.querySelector('.drawer-panel');
+    if (panel.getAttribute('data-id') !== t.id) {
+      panel.setAttribute('data-id', t.id);
+      panel.replaceChildren.apply(panel, drawerBody(t));
+    }
+    paintDrawerAct();
+  }
+
+  function vsec(title, kids) {
+    return h('section', { class: 'vsec' }, [h('h3', { class: 'vsec-title' }, title), kids]);
+  }
+
+  function drawerBody(t) {
+    var canvas = h('canvas', { class: 'pixel', width: 16, height: 16, 'aria-hidden': 'true' });
+    drawAvatar(canvas, t.avatar);
+    var level = t.level || 'starter';
+    var needs = (t.needs || []).map(function (n) {
+      return h('span', { class: 'need', title: NEED_WORDS[n] || n, 'aria-label': NEED_WORDS[n] || n, html: needIcon(n) });
+    });
+    var rules = t.agent && t.agent.rules ? t.agent.rules : [];
+    return [
+      h('div', { class: 'drawer-top' }, [
+        h('span', { class: 'small muted' }, 'Vault · ' + (t.group ? String(t.group).charAt(0).toUpperCase() + String(t.group).slice(1) : 'Agent')),
+        h('button', { type: 'button', class: 'drawer-close', title: 'Close', 'aria-label': 'Close', onclick: closeDrawer, html: icon('x') })
+      ]),
+      h('div', { class: 'drawer-hero p-' + tintOf(t) }, [
+        h('div', { class: 'av big' }, canvas),
+        h('div', { class: 'grow' }, [
+          h('h2', { id: 'drawerTitle', class: 'drawer-title' }, t.name),
+          h('p', { class: 'small' }, t.summary || ''),
+          h('div', { class: 'hero-meta' }, [h('span', { class: 'badge lvl' }, LEVEL_WORDS[level] || 'Starter'), h('span', { class: 'needs' }, needs)])
+        ])
+      ]),
+      vsec('About', h('p', { class: 'vtext' }, t.about || '')),
+      vsec('Watches', h('div', { class: 'vchips-static' }, (t.watches || []).map(function (w) {
+        return h('span', { class: 'chip' }, w);
+      }))),
+      vsec('Data sources', h('ul', { class: 'vlist' }, (t.sources || []).map(function (s) { return h('li', null, s); }))),
+      vsec('Who it helps', h('p', { class: 'vtext' }, t.who || '')),
+      vsec('Example alert', h('blockquote', { class: 'quote vquote' }, t.example || '')),
+      rules.length ? vsec('Rules in plain words', h('ol', { class: 'vrules' }, rules.map(function (r) {
+        return h('li', null, [
+          h('strong', null, r.name || 'Rule'),
+          h('span', { class: 'small muted vrule-text' }, ruleWords(r))
+        ]);
+      }))) : null,
+      h('div', { class: 'drawer-act' })
+    ].filter(Boolean);
+  }
+
+  function addFromDrawer(t) {
+    if (adding[t.id]) return;
+    adding[t.id] = true;
+    paintDrawerAct();
+    ask('POST', '/api/agents', { templateId: t.id }).then(function (d) {
+      delete adding[t.id];
+      if (d) {
+        toast('Added ' + t.name);
+        refresh();
+      } else {
+        paintDrawerAct();
+      }
+    });
+  }
+
+  function paintDrawerAct() {
+    var panel = document.querySelector('#drawer .drawer-panel');
+    var t = drawerId && findTpl(drawerId);
+    var slot = panel && panel.querySelector('.drawer-act');
+    if (!t || !slot) return;
+    var kids;
+    if (isAdded(t.id)) {
+      kids = [
+        h('span', { class: 'added-note' }, [icon('check'), ' Added']),
+        h('a', { class: 'vlink', href: '#agents', onclick: closeDrawer }, 'Go to Agents')
+      ];
+    } else {
+      kids = [
+        h('button', {
+          type: 'button', class: 'pill', disabled: !!adding[t.id],
+          onclick: function () { addFromDrawer(t); }
+        }, adding[t.id] ? 'Adding...' : 'Add to my agents')
+      ];
+    }
+    slot.replaceChildren.apply(slot, kids);
+  }
+
+  var VAULT_DOOR_SVG =
+    '<svg viewBox="0 0 64 64" width="56" height="56" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">' +
+    '<rect x="6" y="6" width="52" height="52" rx="14"/>' +
+    '<rect x="12" y="12" width="40" height="40" rx="10" opacity=".4"/>' +
+    '<g class="dial"><circle cx="32" cy="32" r="11"/><path d="M32 22.5v3M32 38.5v3M22.5 32h3M38.5 32h3"/>' +
+    '<circle cx="32" cy="32" r="2" fill="currentColor"/></g></svg>';
 
   /* ---------- Activity ---------- */
 
@@ -789,6 +1036,13 @@
 
   /* ---------- init ---------- */
 
+  document.getElementById('drawer').addEventListener('click', function (e) {
+    if (e.target && e.target.getAttribute && e.target.getAttribute('data-close')) closeDrawer();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeDrawer();
+  });
+
   function init() {
     buildNav();
     if (!DEMO && !TOKEN) {
@@ -842,12 +1096,72 @@
         }
       ],
       templates: [
-        { id: 'tpl-heat', name: 'Heat watch', summary: 'Warns when heat and heart rate climb together.', group: 'Disaster', avatar: 'sentinel', agent: {} },
-        { id: 'tpl-flood', name: 'Flood alert', summary: 'Follows river levels near home.', group: 'Disaster', avatar: 'scout', agent: {} },
-        { id: 'tpl-sos', name: 'Quick help', summary: 'Sends your contacts a short note when you ask for help.', group: 'Help', avatar: 'rescue', agent: {} },
-        { id: 'tpl-med', name: 'Medic on call', summary: 'Watches oxygen and heart rate for a relative at home.', group: 'Medicine', avatar: 'medic', agent: {} },
-        { id: 'tpl-child', name: 'School run', summary: 'Checks in when a child leaves or arrives.', group: 'Child', avatar: 'guardian', agent: {} },
-        { id: 'tpl-kit', name: 'Go-bag check', summary: 'Reminds you to refresh supplies twice a year.', group: 'Prepare', avatar: 'coach', agent: {} }
+        {
+          id: 'tpl-heat', name: 'Heatwave Guardian', summary: 'Combines heat and heart rate to protect older family members.',
+          group: 'disaster', avatar: 'guardian', level: 'guardian', needs: ['health', 'phone'],
+          about: 'Combines the heat index at home with an elder\'s heart rate, so a hot day and a racing heart are seen together. Heat is most dangerous for older people, and this agent suggests a cooler room before it becomes an emergency.',
+          watches: ['Heat index', "Maa's heart rate", 'Temperature'],
+          sources: ['Open-Meteo', 'Your health data (stays on this computer)'],
+          example: 'Maa: heart rate 118, heatwave at 42 C. Move to a cooler room and call Dr. Asha.',
+          who: 'Elders, people on heart medicine, outdoor workers',
+          agent: { rules: [{ id: 'd1', name: 'Heat with high heart rate', severity: 'severe', message: '', when: { mode: 'all', conditions: [
+            { metric: 'heat_index_c', op: '>', value: 41 }, { metric: 'hr:Maa', op: '>', value: 110 }] } }] }
+        },
+        {
+          id: 'tpl-flood', name: 'Flood Watcher', summary: 'Follows rain for low-lying homes and says when to move to higher ground.',
+          group: 'disaster', avatar: 'rescue', level: 'guardian', needs: ['phone'],
+          about: 'Follows rain over the last hours and the day, and warns when water could start to rise near your home. Floods can come quicker than expected, so the advice is to move early to higher ground and keep to official instructions.',
+          watches: ['Rain right now', 'Rain in the last 24 hours'],
+          sources: ['Open-Meteo'],
+          example: 'Extreme rain: 160 mm in 24 hours. Move to higher ground now if water is rising, and follow local instructions.',
+          who: 'Homes near rivers, nallahs and basements, and the families who live there',
+          agent: { rules: [{ id: 'd2', name: 'Move to higher ground', severity: 'severe', message: '', when: { mode: 'all', conditions: [
+            { metric: 'rain_mm_24h', op: '>', value: 150 }] } }] }
+        },
+        {
+          id: 'tpl-sos', name: 'Neighbour Helper', summary: 'Passes on help requests from the community to the family group.',
+          group: 'help', avatar: 'rescue', level: 'guardian', needs: ['telegram'],
+          about: 'Passes on help requests from the community, such as a neighbour who needs water or a ride, so the family group sees them in one place. It shares only the short request text and never sends health details.',
+          watches: ['Official alerts near you', 'Strong earthquake nearby'],
+          sources: ['NDMA SACHET', 'USGS'],
+          example: 'Help request from the lane behind you: an elderly neighbour needs water. Can someone check?',
+          who: 'Neighbourhood groups, apartment associations, families who help each other',
+          agent: { rules: [{ id: 'd3', name: 'Quake, check on neighbours', severity: 'warning', message: '', when: { mode: 'all', conditions: [
+            { metric: 'quake_max_mag', op: '>=', value: 4.5 }] } }] }
+        },
+        {
+          id: 'tpl-med', name: 'Medicine Reminder', summary: 'Reminds before a dose and warns when stock runs low.',
+          group: 'medicine', avatar: 'medic', level: 'starter', needs: ['health', 'phone'],
+          about: 'Gives a heads-up shortly before a scheduled dose and warns when the medicine stock is running low. Missed doses and empty shelves are easy to avoid with a reminder a few minutes early.',
+          watches: ['Minutes until the BP tablet dose', 'Medicine stock in days'],
+          sources: ['Your medicine schedule', 'Your stock count (entered in Beacon)'],
+          example: 'Maa: BP tablet due in 15 minutes. Medicine stock: 4 days left. Order a refill.',
+          who: 'Anyone on daily medicine, and the family member who manages it',
+          agent: { rules: [{ id: 'd4', name: 'Dose due soon', severity: 'watch', message: '', when: { mode: 'all', conditions: [
+            { metric: 'minutes_to_dose:BP tablet', op: '<=', value: 15 }] } }] }
+        },
+        {
+          id: 'tpl-child', name: 'Child Play Guardian', summary: 'Says when it is too hot, too smoggy or too strong in the sun to play outside.',
+          group: 'child', avatar: 'guardian', level: 'starter', needs: ['phone'],
+          about: 'Decides whether it is a good day for children to play outside, looking at the sun, the air and the heat. Children are more sensitive to heat and smog, so a plain "stay in today" is often the kindest advice.',
+          watches: ['UV index', 'Air quality index (AQI)', 'Heat index'],
+          sources: ['Open-Meteo'],
+          example: 'UV index 9. Play in shade and keep a hat and water handy.',
+          who: 'Children, and the adults who look after them at school or the park',
+          agent: { rules: [{ id: 'd5', name: 'Strong sun', severity: 'warning', message: '', when: { mode: 'all', conditions: [
+            { metric: 'uv_index', op: '>=', value: 8 }] } }] }
+        },
+        {
+          id: 'tpl-kit', name: 'Preparedness Coach', summary: 'Nudges you to keep a week of water, food and medicine at home.',
+          group: 'prepare', avatar: 'coach', level: 'starter', needs: ['phone'],
+          about: 'Keeps a gentle count of water, food and medicine at home and nudges you when any of them falls under a week. Most emergencies are easier to handle when the cupboard is already stocked, so this agent helps you plan ahead.',
+          watches: ['Water stock in days', 'Food stock in days', 'Medicine stock in days'],
+          sources: ['Your stock count (entered in Beacon)'],
+          example: 'Water stock is 5 days. Aim for 7 days at home.',
+          who: 'Every household, especially before monsoon and summer',
+          agent: { rules: [{ id: 'd6', name: 'Water under a week', severity: 'watch', message: '', when: { mode: 'all', conditions: [
+            { metric: 'water_days', op: '<', value: 7 }] } }] }
+        }
       ],
       runs: [
         { agentId: 'ag1', at: ago(4 * 60000), signals: 1 },

@@ -60,8 +60,12 @@ export default function Family() {
               icon="check"
               size="sm"
               onPress={async () => {
-                await sendSafeNow();
-                setSent(true);
+                try {
+                  await sendSafeNow();
+                  setSent(true);
+                } catch {
+                  /* not sent: the button stays so the person can try again */
+                }
               }}
             />
           </View>

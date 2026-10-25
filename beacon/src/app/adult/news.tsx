@@ -5,6 +5,7 @@ import { Image, View } from 'react-native';
 import { AlertCard } from '../../components/AlertCard';
 import { Icon } from '../../components/Icon';
 import { Screen } from '../../components/Screen';
+import { SkeletonList } from '../../components/Skeleton';
 import { Appear, Badge, Btn, Card, Chip, Row, Txt, useTheme } from '../../components/ui';
 import { useT } from '../../i18n';
 import { useAlerts } from '../../services/alerts';
@@ -45,8 +46,8 @@ export default function News() {
         const fix = await getFix({ maxWaitMs: 4000 });
         if (fix) {
           const [n, r] = await Promise.all([cloud.get<{ cards: NewsCard[] }>(`/v1/news?lat=${fix.lat}&lon=${fix.lon}`), cloud.get<{ reports: ReportView[] }>(`/v1/reports?lat=${fix.lat}&lon=${fix.lon}`)]);
-          setCards(n.cards);
-          setReports(r.reports);
+          setCards(n.cards ?? []);
+          setReports(r.reports ?? []);
           AsyncStorage.setItem(CACHE, JSON.stringify(n.cards)).catch(() => {});
         }
       } catch (e) {
@@ -86,6 +87,7 @@ export default function News() {
       </Row>
       {err ? <Txt size={12} color={p.danger}>{err}</Txt> : null}
 
+      {tab === 'news' && loading && feed.length === 0 ? <SkeletonList n={3} /> : null}
       {tab === 'news' &&
         feed.map((c, i) => (
           <Appear key={c.id} index={i}>
@@ -119,6 +121,7 @@ export default function News() {
         <>
           <Btn label={t('postReport')} icon="camera" onPress={() => router.push('/report/new' as never)} />
           {!cloudConfigured() ? <Txt size={12} color={p.muted}>{t('serverNotSet')}</Txt> : null}
+          {loading && reports.length === 0 ? <SkeletonList n={2} /> : null}
           {reports.map((r, i) => (
             <Appear key={r.id} index={i}>
               <Card style={{ padding: 0, overflow: 'hidden' }}>

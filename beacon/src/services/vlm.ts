@@ -1,7 +1,7 @@
 import * as FS from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
 import jpeg from 'jpeg-js';
-import { Platform } from 'react-native';
+import { NativeModules, Platform } from 'react-native';
 import { create } from 'zustand';
 import { fromBase64 } from '../mesh/bytes';
 import { type Ort, type OrtSession, type Sessions, describe } from '../vision/smolvlm';
@@ -85,13 +85,18 @@ export const useVlm = create<VlmState>((set, get) => ({
 // ---- inference ----
 
 // ONNX Runtime has native code. Load it lazily so a build without it (or Expo Go, or web) still runs everything else.
+let ortMod: typeof import('onnxruntime-react-native') | null | undefined;
 function ort(): typeof import('onnxruntime-react-native') | null {
+  if (ortMod !== undefined) return ortMod;
+  // the package throws at import when its native half is missing, so look for that half first
+  if (!NativeModules.Onnxruntime) return (ortMod = null);
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('onnxruntime-react-native');
+    ortMod = require('onnxruntime-react-native');
   } catch {
-    return null;
+    ortMod = null;
   }
+  return ortMod ?? null;
 }
 
 export const ortAvailable = () => Platform.OS !== 'web' && ort() !== null;

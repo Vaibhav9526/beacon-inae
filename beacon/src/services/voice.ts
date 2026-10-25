@@ -59,7 +59,7 @@ export async function listenOnce(lang: Lang, timeoutMs = 9000): Promise<string |
       done = true;
       subs.forEach((s) => s.remove());
       clearTimeout(timer);
-      void native!.voiceStop();
+      void native!.voiceStop().catch(() => {});
       useVoice.setState({ listening: false, partial: '' });
       resolve(v);
     };
@@ -77,7 +77,7 @@ export async function listenOnce(lang: Lang, timeoutMs = 9000): Promise<string |
         }
       }),
     );
-    void native!.voiceStart(code(lang), false);
+    void native!.voiceStart(code(lang), false).catch(() => finish(null));
   });
 }
 
@@ -114,7 +114,12 @@ export async function startWake(lang: Lang, onCommand: (text: string) => void, o
       if (e.state === 'stopped') useVoice.setState({ listening: false });
     }),
   );
-  await native.voiceStart(code(lang), true);
+  try {
+    await native.voiceStart(code(lang), true);
+  } catch {
+    stopWake(); // drop the listeners we just added
+    return false;
+  }
   useVoice.setState({ wake: true });
   return true;
 }
@@ -123,7 +128,7 @@ export function stopWake() {
   wakeSubs.forEach((s) => s.remove());
   wakeSubs = [];
   useVoice.setState({ wake: false, listening: false, partial: '' });
-  void native?.voiceStop();
+  native?.voiceStop().catch(() => {});
 }
 
 export async function stopVoice() {

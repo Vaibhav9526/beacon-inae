@@ -1,7 +1,7 @@
-import * as Haptics from 'expo-haptics';
-import React, { createContext, useContext } from 'react';
-import { Platform, Pressable, type PressableProps, Text, type TextProps, type TextStyle, View, type ViewProps, type ViewStyle } from 'react-native';
-import Animated, { FadeIn, FadeInDown, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
+import React, { createContext, useContext, useEffect } from 'react';
+import { Pressable, type PressableProps, Text, type TextProps, type TextStyle, View, type ViewProps, type ViewStyle } from 'react-native';
+import Animated, { Easing, FadeIn, useAnimatedStyle, useReducedMotion, useSharedValue, withDelay, withTiming } from 'react-native-reanimated';
+import * as haptics from '../services/haptics';
 import { useSettings } from '../state/settings';
 import { type Mode, type Palette, fonts, radius, usePalette } from '../theme';
 import { Icon, type IconName } from './Icon';
@@ -57,36 +57,62 @@ export function IconTile({ name, tint = 'lilac', size = 36, color }: { name: Ico
 }
 
 // ---- motion ----
-/** Fades and lifts a block in. Give each sibling a growing `index` for a gentle stagger. */
+const EASE = Easing.out(Easing.cubic);
+
+/** Fades in and drifts up 6px over 220ms. Stagger is 40ms per index, capped at 240ms total. Reduced motion: fade only. */
 export function Appear({ children, index = 0, style }: { children: React.ReactNode; index?: number; style?: ViewStyle }) {
+  const reduced = useReducedMotion();
+  const delay = Math.min(index * 40, 240);
+  const y = useSharedValue(reduced ? 0 : 6);
+  useEffect(() => {
+    if (!reduced) y.value = withDelay(delay, withTiming(0, { duration: 220, easing: EASE }));
+  }, [delay, reduced, y]);
+  const drift = useAnimatedStyle(() => ({ transform: [{ translateY: y.value }] }));
   return (
-    <Animated.View entering={FadeInDown.delay(Math.min(index, 8) * 45).duration(260).springify().damping(18)} style={style}>
+    <Animated.View entering={FadeIn.delay(delay).duration(220).easing(EASE)} style={[style, drift]}>
       {children}
     </Animated.View>
   );
 }
 
 export const Fade = ({ children, style }: { children: React.ReactNode; style?: ViewStyle }) => (
-  <Animated.View entering={FadeIn.duration(220)} style={style}>
+  <Animated.View entering={FadeIn.duration(200).easing(EASE)} style={style}>
     {children}
   </Animated.View>
 );
 
 const APressable = Animated.createAnimatedComponent(Pressable);
 
-/** Pressable that gives a very small spring on touch. */
-export function Press({ children, style, onPressIn, onPressOut, ...rest }: PressableProps & { style?: ViewStyle | ViewStyle[]; children: React.ReactNode }) {
+/** Pressable that gives a very small press-in scale and a subtle haptic. `haptic={false}` silences it. */
+export function Press({
+  children,
+  style,
+  onPressIn,
+  onPressOut,
+  haptic = 'tap',
+  ...rest
+}: PressableProps & { style?: ViewStyle | ViewStyle[]; children: React.ReactNode; haptic?: false | 'tap' | 'soft' }) {
+  const reduced = useReducedMotion();
   const s = useSharedValue(1);
-  const a = useAnimatedStyle(() => ({ transform: [{ scale: s.value }] }));
+  const o = useSharedValue(1);
+  const a = useAnimatedStyle(() => (reduced ? {} : { transform: [{ scale: s.value }], opacity: o.value }));
   return (
     <APressable
       {...rest}
       onPressIn={(e) => {
-        s.value = withTiming(0.97, { duration: 90 });
+        if (haptic === 'soft') haptics.soft();
+        else if (haptic) haptics.tap();
+        if (!reduced) {
+          s.value = withTiming(0.985, { duration: 140, easing: EASE });
+          o.value = withTiming(0.92, { duration: 140, easing: EASE });
+        }
         onPressIn?.(e);
       }}
       onPressOut={(e) => {
-        s.value = withSpring(1, { damping: 14, stiffness: 260 });
+        if (!reduced) {
+          s.value = withTiming(1, { duration: 180, easing: EASE });
+          o.value = withTiming(1, { duration: 180, easing: EASE });
+        }
         onPressOut?.(e);
       }}
       style={[a, style as never]}>
@@ -105,6 +131,7 @@ export function Btn({
   style,
   size = 'md',
   accessibilityLabel,
+  haptic = true,
 }: {
   label: string;
   onPress?: PressableProps['onPress'];
@@ -114,21 +141,21 @@ export function Btn({
   style?: ViewStyle;
   size?: 'sm' | 'md' | 'lg';
   accessibilityLabel?: string;
+  haptic?: boolean;
 }) {
   const { p } = useTheme();
-  const haptics = useSettings((s) => s.haptics);
   const bg = kind === 'primary' ? p.accent : kind === 'danger' ? p.danger : kind === 'secondary' ? p.cardAlt : 'transparent';
   const fg = kind === 'primary' ? p.onAccent : kind === 'danger' ? '#fff' : p.text;
   const h = size === 'lg' ? 50 : size === 'sm' ? 32 : 42;
+  // Danger actions and icon-only primaries get the heavier soft impact; everything else a light tick.
+  const hapticKind = kind === 'danger' || (kind === 'primary' && !label) ? 'soft' : 'tap';
   return (
     <Press
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
       disabled={disabled}
-      onPress={(e) => {
-        if (haptics && Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
-        onPress?.(e);
-      }}
+      haptic={haptic ? hapticKind : false}
+      onPress={onPress}
       style={[{ height: h, paddingHorizontal: size === 'sm' ? 12 : 18, borderRadius: radius.pill, backgroundColor: bg, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, opacity: disabled ? 0.45 : 1, borderWidth: kind === 'ghost' ? 1 : 0, borderColor: p.border }, style ?? {}]}>
       {icon ? <Icon name={icon} size={size === 'sm' ? 14 : 16} color={fg} /> : null}
       {label ? (
@@ -140,10 +167,10 @@ export function Btn({
   );
 }
 
-export function Chip({ label, active, onPress, icon }: { label: string; active?: boolean; onPress?: () => void; icon?: IconName; color?: string }) {
+export function Chip({ label, active, onPress, icon, haptic = true }: { label: string; active?: boolean; onPress?: () => void; icon?: IconName; color?: string; haptic?: boolean }) {
   const { p } = useTheme();
   return (
-    <Press accessibilityRole="button" onPress={onPress} style={{ height: 32, paddingHorizontal: 12, borderRadius: radius.pill, backgroundColor: active ? p.accent : 'transparent', borderWidth: 1, borderColor: active ? p.accent : p.border, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+    <Press accessibilityRole="button" onPress={onPress} haptic={haptic ? 'tap' : false} style={{ height: 32, paddingHorizontal: 12, borderRadius: radius.pill, backgroundColor: active ? p.accent : 'transparent', borderWidth: 1, borderColor: active ? p.accent : p.border, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
       {icon ? <Icon name={icon} size={13} color={active ? p.onAccent : p.muted} /> : null}
       <Txt size={12.5} weight="500" color={active ? p.onAccent : p.text}>
         {label}

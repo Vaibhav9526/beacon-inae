@@ -81,6 +81,21 @@ export interface Template {
   avatar: string;
   /** A ready agent, minus the id/createdAt that are set when the user adds it. */
   agent: Omit<Agent, 'id' | 'createdAt'>;
+  /** Vault details. Optional in the type, but every built-in template fills them in (see vault.test.ts). */
+  /** Two plain sentences: what it does and why it matters for a family. */
+  about?: string;
+  /** Human labels for what it watches, e.g. 'Heat index', "Maa's heart rate". */
+  watches?: string[];
+  /** Where the data comes from, e.g. 'Open-Meteo', 'USGS', 'NDMA SACHET'. */
+  sources?: string[];
+  /** A sample alert text. Calm, no emojis. */
+  example?: string;
+  /** Who it helps, e.g. 'Elders, anyone outdoors'. */
+  who?: string;
+  /** starter works out of the box, guardian needs a little tuning, expert needs health data or a second channel. */
+  level?: 'starter' | 'guardian' | 'expert';
+  /** Setup the agent relies on beyond the defaults. */
+  needs?: ('health' | 'telegram' | 'phone')[];
 }
 
 export interface Signal {

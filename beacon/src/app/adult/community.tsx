@@ -3,6 +3,7 @@ import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from 'rea
 import { distanceKm } from '../../alerts/sources';
 import { Icon, type IconName } from '../../components/Icon';
 import { Screen } from '../../components/Screen';
+import { SkeletonList } from '../../components/Skeleton';
 import { Appear, Badge, Btn, Card, Chip, Press, Row, Txt, useTheme } from '../../components/ui';
 import { useT } from '../../i18n';
 import { CHANNEL_LEVELS } from '../../mesh/geohash';
@@ -33,7 +34,7 @@ export default function Community() {
   const scroll = useRef<React.ComponentRef<typeof ScrollView>>(null);
 
   useEffect(() => {
-    void mesh.start().then(() => mesh.refreshChannels());
+    void mesh.start().then(() => mesh.refreshChannels()).catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const channel = mesh.channels[level] ?? mesh.channels[0] ?? 'geo:local';
@@ -42,8 +43,10 @@ export default function Community() {
 
   // posts other gateways uploaded to the server (so people beyond Bluetooth range still see them)
   const [serverBoard, setServerBoard] = useState<PublicMessage[]>([]);
+  const [boardLoading, setBoardLoading] = useState(false);
   useEffect(() => {
     if (tab !== 'board' || !cloudConfigured()) return;
+    setBoardLoading(true);
     void (async () => {
       try {
         const fix = await getFix({ maxWaitMs: 3000 });
@@ -52,6 +55,8 @@ export default function Community() {
         setServerBoard(r.posts.map((x) => ({ id: 'srv:' + x.id, channel: 'server', from: 'server', nickname: x.nickname, text: x.text, kind: x.kind, timestamp: x.ts, verified: false, hops: 0 })));
       } catch {
         /* offline: the mesh posts are still shown */
+      } finally {
+        setBoardLoading(false);
       }
     })();
   }, [tab]);
@@ -151,7 +156,8 @@ export default function Community() {
                 <Chip icon="alert" label={t('askHelp')} active={kind === 'need'} onPress={() => setKind('need')} />
                 <Chip icon="heart" label={t('offerHelp')} active={kind === 'offer'} onPress={() => setKind('offer')} />
               </Row>
-              {board.length === 0 ? <Txt size={13} color={p.muted}>{t('nobodyYet')}</Txt> : null}
+              {board.length === 0 && boardLoading ? <SkeletonList n={3} /> : null}
+              {board.length === 0 && !boardLoading ? <Txt size={13} color={p.muted}>{t('nobodyYet')}</Txt> : null}
               {board.map((m, i) => (
                 <Appear key={m.id} index={i}>
                   <Card style={{ gap: 4, padding: 12 }}>

@@ -6,6 +6,7 @@ import { Icon, type IconName } from '../../components/Icon';
 import { MicButton } from '../../components/MicButton';
 import { PixelAvatar, cast } from '../../components/PixelAvatar';
 import { Screen } from '../../components/Screen';
+import { SkeletonList } from '../../components/Skeleton';
 import { SosPanel } from '../../components/SosPanel';
 import { StatusPill } from '../../components/Status';
 import { Appear, Btn, Card, IconTile, Press, Row, SectionTitle, type TintName, Txt, useTheme } from '../../components/ui';
@@ -46,7 +47,10 @@ export default function AdultHome() {
   const sosHeard = useMesh((s) => s.sos);
   const partial = useVoice((s) => s.partial);
   const [said, setSaid] = useState('');
+  // the banner only for a serious alert; it is then left out of the list below so it never shows twice
   const top = items[0];
+  const banner = top && (top.severity === 'warning' || top.severity === 'severe') ? top : undefined;
+  const listed = items.filter((a) => a.id !== banner?.id);
 
   const run = useCallback(async (text: string) => {
     setSaid(`“${text}”`);
@@ -99,9 +103,9 @@ export default function AdultHome() {
         </Row>
       ) : null}
 
-      {top ? (
+      {banner ? (
         <Appear index={1}>
-          <AlertCard a={top} compact />
+          <AlertCard a={banner} compact />
         </Appear>
       ) : null}
 
@@ -121,20 +125,22 @@ export default function AdultHome() {
       </Row>
 
       <SectionTitle right={<Btn size="sm" kind="ghost" icon="refresh" label="" onPress={() => void refresh()} disabled={syncing} />}>{t('alertsNearYou')}</SectionTitle>
-      {items.length === 0 ? (
+      {listed.length === 0 && syncing && items.length === 0 ? (
+        <SkeletonList n={2} />
+      ) : listed.length === 0 ? (
         <Card>
           <Txt size={13} color={p.muted}>
             {t('noAlerts')}
           </Txt>
         </Card>
       ) : (
-        items.slice(0, 3).map((a, i) => (
+        listed.slice(0, 3).map((a, i) => (
           <Appear key={a.id} index={i}>
             <AlertCard a={a} compact />
           </Appear>
         ))
       )}
-      {items.length > 3 ? <Btn kind="secondary" size="sm" label={`${t('tabAlerts')} (${items.length})`} onPress={() => router.push('/adult/news' as never)} /> : null}
+      {listed.length > 3 ? <Btn kind="secondary" size="sm" label={`${t('tabAlerts')} (${listed.length})`} onPress={() => router.push('/adult/news' as never)} /> : null}
 
       <Press onPress={() => router.push('/adult/community' as never)}>
         <Card style={{ padding: 12 }}>

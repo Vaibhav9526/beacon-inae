@@ -7,7 +7,12 @@ export async function main() {
   const app = new HubApp();
   const link = new BeaconLink(app.dir, app.relayUrl);
   app.addSender(link);
-  const { port, token } = await startHttp(app, { port: Number(process.env.PORT ?? 4747), pairing: () => link.pairingQr() });
+  const pairing = () => link.pairingQr();
+  // if the usual port is taken (another hub already running) take any free one
+  const { port, token } = await startHttp(app, { port: Number(process.env.PORT ?? 4747), pairing }).catch((e: NodeJS.ErrnoException) => {
+    if (e.code !== 'EADDRINUSE') throw e;
+    return startHttp(app, { port: 0, pairing });
+  });
   app.hub.start();
   const refreshPhones = () =>
     void link

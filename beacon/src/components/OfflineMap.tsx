@@ -7,6 +7,7 @@ import { type Fix, getFix, watchFix } from '../services/location';
 import { useMap } from '../services/maps';
 import { radius } from '../theme';
 import { Icon, type IconName } from './Icon';
+import { Skeleton, SkeletonList } from './Skeleton';
 import { Appear, Btn, Card, Chip, Press, Row, Txt, useTheme } from './ui';
 
 export const PLACE_ICON: Record<PlaceKind, IconName> = { shelter: 'tent', hospital: 'hospital', water: 'water', police: 'shield', pharmacy: 'pill', fire: 'fire', school: 'learn' };
@@ -30,6 +31,7 @@ export function OfflineMap({ initialPlace, height = 340 }: { initialPlace?: Plac
   const size = Math.min(width - 32, 520);
   const { area, loaded, downloading, error, load, download } = useMap();
   const [fix, setFix] = useState<Fix | null>(null);
+  const [fixSettled, setFixSettled] = useState(false); // true once the first GPS attempt has returned, fix or not
   const [filter, setFilter] = useState<PlaceKind | null>(initialPlace ?? null);
   const [scale, setScale] = useState(120); // px per km
   const [pan, setPan] = useState({ x: 0, y: 0 });
@@ -38,10 +40,20 @@ export function OfflineMap({ initialPlace, height = 340 }: { initialPlace?: Plac
 
   useEffect(() => {
     void load();
-    void getFix({ maxWaitMs: 5000 }).then(setFix);
+    void getFix({ maxWaitMs: 5000 }).then((f) => {
+      setFix(f);
+      setFixSettled(true);
+    });
+    // watchFix resolves after a possible unmount, so the subscription is released as soon as it arrives
     let stop = () => {};
-    void watchFix(setFix).then((s) => (stop = s));
-    return () => stop();
+    let gone = false;
+    void watchFix(setFix)
+      .then((s) => (gone ? s() : (stop = s)))
+      .catch(() => {});
+    return () => {
+      gone = true;
+      stop();
+    };
   }, [load]);
 
   const responder = useMemo(
@@ -83,7 +95,7 @@ export function OfflineMap({ initialPlace, height = 340 }: { initialPlace?: Plac
   const land = p.dark ? '#1C1C22' : '#EFECE4';
   const edge = p.dark ? '#0F0F13' : '#D8D3C6';
 
-  if (!loaded) return null;
+  if (!loaded) return <Skeleton h={height} w={size} r={radius.lg} style={{ alignSelf: 'center' }} />;
 
   return (
     <View style={{ gap: 12 }}>
@@ -161,6 +173,7 @@ export function OfflineMap({ initialPlace, height = 340 }: { initialPlace?: Plac
             ))}
           </ScrollView>
           <View style={{ gap: 8 }}>
+            {near.length === 0 && !fixSettled ? <SkeletonList n={3} /> : null}
             {near.slice(0, 6).map((pl, i) => {
               const hot = target && target.lat === pl.lat && target.lon === pl.lon;
               return (

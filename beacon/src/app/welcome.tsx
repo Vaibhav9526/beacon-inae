@@ -1,7 +1,8 @@
 import { router } from 'expo-router';
 import React, { useState } from 'react';
-import { TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, TextInput, View } from 'react-native';
 import { Icon } from '../components/Icon';
+import { Logo } from '../components/Logo';
 import { PixelAvatar, SPECIES, buddy, cast } from '../components/PixelAvatar';
 import { Screen } from '../components/Screen';
 import { Appear, Btn, Card, Press, Row, Txt, useTheme } from '../components/ui';
@@ -36,21 +37,19 @@ export default function Welcome() {
 
   return (
     <Screen back={false} scroll={false}>
+      {/* scroll is off here, so the name field must lift above the keyboard itself */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={{ flex: 1, paddingHorizontal: 20, justifyContent: 'center', gap: 22 }}>
         <Appear>
-          <View style={{ gap: 6 }}>
-            <Row style={{ gap: 8 }}>
-              <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: p.accent, alignItems: 'center', justifyContent: 'center' }}>
-                <Icon name="radio" size={14} color={p.onAccent} />
-              </View>
-              <Txt size={20} weight="700">
-                {t('appName')}
-              </Txt>
-            </Row>
-            <Txt size={26} weight="600" style={{ lineHeight: 34 }}>
+          <View style={{ gap: 6, alignItems: 'center' }}>
+            <Logo size={88} />
+            <Txt size={20} weight="700" style={{ marginTop: 6 }}>
+              {t('appName')}
+            </Txt>
+            <Txt size={26} weight="600" style={{ lineHeight: 34, textAlign: 'center' }}>
               {step === 'name' ? (mode === 'kid' ? t('kidNameQ') : t('yourName')) : step === 'who' ? t('whoAreYou') : t('chooseLanguage')}
             </Txt>
-            <Txt size={13} color={p.muted}>
+            <Txt size={13} color={p.muted} style={{ textAlign: 'center' }}>
               {t('tagline')}
             </Txt>
           </View>
@@ -149,6 +148,7 @@ export default function Welcome() {
           </View>
         )}
       </View>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }

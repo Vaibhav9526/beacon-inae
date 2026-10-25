@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import React from 'react';
 import { View } from 'react-native';
-import Animated, { useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import Animated, { Easing, useAnimatedStyle, useReducedMotion, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { radius } from '../theme';
 import { Icon, type IconName } from './Icon';
@@ -19,8 +19,11 @@ export interface TabDef {
 
 function Item({ tab, active, onPress, pill }: { tab: TabDef; active: boolean; onPress: () => void; pill: boolean }) {
   const { p } = useTheme();
-  const lift = useAnimatedStyle(() => ({ transform: [{ translateY: withSpring(active ? -1 : 0, { damping: 14 }) }, { scale: withSpring(active ? 1.06 : 1, { damping: 14 }) }] }));
-  const dot = useAnimatedStyle(() => ({ opacity: withSpring(active ? 1 : 0), transform: [{ scaleX: withSpring(active ? 1 : 0.2) }] }));
+  const reduced = useReducedMotion();
+  // timing only, no overshoot; the icon scale tops out at 1.0
+  const timing = { duration: 180, easing: Easing.out(Easing.cubic) };
+  const lift = useAnimatedStyle(() => (reduced ? {} : { transform: [{ scale: withTiming(active ? 1 : 0.96, timing) }] }));
+  const dot = useAnimatedStyle(() => (reduced ? { opacity: withTiming(active ? 1 : 0, timing) } : { opacity: withTiming(active ? 1 : 0, timing), transform: [{ scaleX: withTiming(active ? 1 : 0.2, timing) }] }));
   return (
     <Press accessibilityRole="tab" accessibilityState={{ selected: active }} accessibilityLabel={tab.label} onPress={onPress} style={{ flex: 1, alignItems: 'center', justifyContent: 'center', height: pill ? 52 : 50, gap: 3 }}>
       <Animated.View style={lift}>

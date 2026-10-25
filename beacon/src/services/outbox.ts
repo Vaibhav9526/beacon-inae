@@ -40,8 +40,19 @@ export async function sendOrQueue(path: string, body: unknown): Promise<boolean>
   return false;
 }
 
+let flushing = false;
+
 export async function flushOutbox(): Promise<number> {
-  if (!cloudConfigured()) return 0;
+  if (!cloudConfigured() || flushing) return 0;
+  flushing = true;
+  try {
+    return await flushNow();
+  } finally {
+    flushing = false;
+  }
+}
+
+async function flushNow(): Promise<number> {
   const q = await load();
   if (q.length === 0) return 0;
   const keep: Pending[] = [];
@@ -56,7 +67,10 @@ export async function flushOutbox(): Promise<number> {
       keep.push({ ...item, tries: item.tries + 1 });
     }
   }
-  await save(keep);
+  // something may have been queued while we were uploading: keep it, drop only what we handled
+  const handled = new Set(q.map((i) => i.id));
+  const added = (await load()).filter((i) => !handled.has(i.id));
+  await save([...keep, ...added]);
   return sent;
 }
 

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <title>Beacon Hub</title>
+  <link rel="icon" href="logo.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600&display=swap" rel="stylesheet">
@@ -14,7 +15,7 @@
   <div class="app">
     <aside class="side">
       <div class="brand">
-        <span class="mark" aria-hidden="true"></span>
+        <img class="mark" src="logo.png" width="28" height="28" alt="">
         <div>
           <strong>Beacon Hub</strong>
           <span class="small muted">Family desk</span>
@@ -28,6 +29,10 @@
   </div>
 
   <div id="sheet" class="sheet" hidden></div>
+  <div id="drawer" class="drawer" aria-hidden="true">
+    <div class="drawer-scrim" data-close="1"></div>
+    <aside class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawerTitle" tabindex="-1"></aside>
+  </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="avatar.js"></script>

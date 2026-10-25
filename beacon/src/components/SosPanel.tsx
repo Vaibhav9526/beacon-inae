@@ -38,9 +38,13 @@ export function SosPanel({ variant }: { variant: 'kid' | 'adult' }) {
 
   const fire = useCallback(async () => {
     setPhase('sending');
-    const r = await sendSosNow();
-    setResult(r);
-    setPhase('sent');
+    try {
+      const r = await sendSosNow();
+      setResult(r);
+      setPhase('sent');
+    } catch {
+      setPhase('idle'); // nothing went out: back to the button so it can be pressed again
+    }
   }, []);
 
   const begin = () => {
@@ -82,8 +86,13 @@ export function SosPanel({ variant }: { variant: 'kid' | 'adult' }) {
   };
 
   const safe = async () => {
-    await sendSafeNow();
-    setSafeMsg(true);
+    try {
+      await sendSafeNow();
+      setSafeMsg(true);
+    } catch {
+      /* not sent: leave the panel as it is */
+      return;
+    }
     setPhase('idle');
     setResult(null);
   };

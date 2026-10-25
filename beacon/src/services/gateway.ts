@@ -40,7 +40,7 @@ async function tick() {
 
 export function startGateway() {
   if (timer) return;
-  void tick();
+  void tick().catch(() => {});
   timer = setInterval(() => void tick().catch(() => {}), 60_000);
 }
 

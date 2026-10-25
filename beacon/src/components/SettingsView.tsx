@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import React, { useState } from 'react';
-import { Switch, TextInput, View } from 'react-native';
+import { TextInput, View } from 'react-native';
 import { needleStatus, needleSupported, startNeedle } from '../ai/needle';
 import { DISCLAIMER } from '../kb';
 import { useLang, useT } from '../i18n';
@@ -14,6 +14,7 @@ import { voiceStatus, voiceSupported } from '../services/voice';
 import { useSettings } from '../state/settings';
 import { radius } from '../theme';
 import { Icon } from './Icon';
+import { Switch } from './Switch';
 import { Btn, Card, Chip, Row, SectionTitle, Txt, useTheme } from './ui';
 
 function Toggle({ label, value, onChange, hint }: { label: string; value: boolean; onChange: (v: boolean) => void; hint?: string }) {
@@ -30,7 +31,7 @@ function Toggle({ label, value, onChange, hint }: { label: string; value: boolea
           </Txt>
         ) : null}
       </View>
-      <Switch value={value} onValueChange={onChange} trackColor={{ true: p.accent, false: p.border }} thumbColor={p.card} accessibilityLabel={label} />
+      <Switch value={value} onValueChange={onChange} accessibilityLabel={label} />
     </Row>
   );
 }
@@ -74,9 +75,13 @@ export function SettingsView() {
 
   const saveXi = async () => {
     setXiMsg('…');
-    const r = await eleven.save(xi);
-    setXiMsg(r.ok ? 'saved' : (r.error ?? 'failed'));
-    if (r.ok) setXi('');
+    try {
+      const r = await eleven.save(xi);
+      setXiMsg(r.ok ? 'saved' : (r.error ?? 'failed'));
+      if (r.ok) setXi('');
+    } catch (e) {
+      setXiMsg(String((e as Error).message ?? e));
+    }
   };
 
   const input = { backgroundColor: p.cardAlt, borderRadius: radius.md, paddingHorizontal: 12, height: 40, color: p.text, fontSize: 13, fontFamily: 'Lexend_400Regular', paddingVertical: 0 } as const;
@@ -201,7 +206,7 @@ export function SettingsView() {
         </Txt>
         <Txt size={12.5}>Photo helper: {vision || 'not checked'}</Txt>
         <View style={{ marginTop: 6, alignSelf: 'flex-start' }}>
-          <Btn size="sm" kind="secondary" icon="refresh" label="Re-check" onPress={() => void startNeedle().then(() => void visionStatus().then((x) => setVision(x.available ? 'ready' : (x.reason ?? 'unavailable'))))} />
+          <Btn size="sm" kind="secondary" icon="refresh" label="Re-check" onPress={() => void startNeedle().then(() => visionStatus()).then((x) => setVision(x.available ? 'ready' : (x.reason ?? 'unavailable'))).catch(() => setVision('unavailable'))} />
         </View>
       </Card>
 

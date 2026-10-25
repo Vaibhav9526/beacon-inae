@@ -50,7 +50,14 @@ export function PersonaChat({ persona, onPhoto, incoming, bottomInset = 0 }: { p
     setInput('');
     setBusy(true);
     setMsgs((m) => [...m, { id: seq++, from: 'me', text: q }]);
-    const r = await makeReply(persona, q, lang, needleReady ? needleEngine : null);
+    let r: Reply;
+    try {
+      r = await makeReply(persona, q, lang, needleReady ? needleEngine : null);
+    } catch {
+      // never leave the chat stuck on "…"
+      setBusy(false);
+      return;
+    }
     setMsgs((m) => [...m, { id: seq++, from: 'bot', reply: r }]);
     setBusy(false);
     if (readAloud) void speak(r.speech, lang, persona);

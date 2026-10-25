@@ -128,7 +128,7 @@ export default function ParentHome() {
                 </Row>
               ) : null}
               <Row style={{ gap: 6 }}>
-                {m ? <Btn size="sm" kind="secondary" icon="map" label="Maps" onPress={() => void Linking.openURL(`geo:${m.lat},${m.lon}?q=${m.lat},${m.lon}(${encodeURIComponent(c.name)})`)} /> : null}
+                {m ? <Btn size="sm" kind="secondary" icon="map" label="Maps" onPress={() => void Linking.openURL(`geo:${m.lat},${m.lon}?q=${m.lat},${m.lon}(${encodeURIComponent(c.name)})`).catch(() => {})} /> : null}
                 <Btn size="sm" kind="ghost" label={t('remove')} onPress={() => set({ children: children.filter((x) => x.code !== c.code) })} />
               </Row>
             </Card>

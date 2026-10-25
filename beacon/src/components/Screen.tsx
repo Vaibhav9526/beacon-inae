@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, usePathname } from 'expo-router';
 import React from 'react';
 import { ScrollView, View, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -39,12 +39,20 @@ export function Screen({
   );
 }
 
+/** Tab bar height (about 54px flat bar, or the kid floating pill with its gap). */
+const TAB_BAR_CLEARANCE = 64;
+/** Tab screens: /adult/<tab> and /kid/<tab>, where the bottom tab bar (or kid pill) is on screen. */
+const TAB_ROUTE = /^\/(adult|kid)(\/(index|map|community|news|aid|more|learn|play|didi|me))?\/?$/;
+
 function Inner({ title, children, scroll, back, right, contentStyle, bottomPad }: { title?: string; children: React.ReactNode; scroll: boolean; back: boolean; right?: React.ReactNode; contentStyle?: ViewStyle; bottomPad: number }) {
   const { p } = useTheme();
   const t = useT();
   const insets = useSafeAreaInsets();
+  const pathname = usePathname();
+  const onTabs = TAB_ROUTE.test(pathname);
+  const bottom = bottomPad + insets.bottom + (onTabs ? TAB_BAR_CLEARANCE : 0);
   const body = scroll ? (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={[{ paddingHorizontal: 16, paddingTop: 6, paddingBottom: bottomPad + insets.bottom, gap: 12 }, contentStyle]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={[{ paddingHorizontal: 16, paddingTop: 6, paddingBottom: bottom, gap: 12 }, contentStyle]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
       {children}
     </ScrollView>
   ) : (

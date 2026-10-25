@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import type { HubApp } from './app.ts';
 
 const UI = join(dirname(fileURLToPath(import.meta.url)), '..', 'ui');
-const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml' };
+const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.png': 'image/png' };
 
 const body = (req: IncomingMessage) =>
   new Promise<Record<string, any>>((resolve, reject) => {
@@ -137,5 +137,5 @@ export function startHttp(app: HubApp, opts: { port?: number; token?: string; pa
       send(500, { error: e instanceof Error ? e.message : 'failed' });
     }
   });
-  return new Promise((resolve) => server.listen(opts.port ?? 0, '127.0.0.1', () => resolve({ server, port: (server.address() as { port: number }).port, token })));
+  return new Promise((resolve, reject) => (server.once('error', reject), server.listen(opts.port ?? 0, '127.0.0.1', () => resolve({ server, port: (server.address() as { port: number }).port, token }))));
 }

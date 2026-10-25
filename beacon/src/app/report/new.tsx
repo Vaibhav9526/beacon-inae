@@ -59,8 +59,12 @@ export default function NewReport() {
   }
 
   const snap = async () => {
-    const pic = await cam.current?.takePictureAsync({ quality: 0.55, skipProcessing: false });
-    if (pic) setShot({ kind: 'photo', uri: pic.uri, mime: 'image/jpeg', capturedAt: Date.now() });
+    try {
+      const pic = await cam.current?.takePictureAsync({ quality: 0.55, skipProcessing: false });
+      if (pic) setShot({ kind: 'photo', uri: pic.uri, mime: 'image/jpeg', capturedAt: Date.now() });
+    } catch {
+      /* camera busy or interrupted: the next tap simply tries again */
+    }
   };
 
   const record = async () => {
@@ -91,16 +95,21 @@ export default function NewReport() {
     if (!shot) return;
     setBusy(true);
     setError('');
-    const place = await currentPlace();
-    if (!place) {
-      setError('No location yet. Turn on location and try again.');
+    try {
+      const place = await currentPlace();
+      if (!place) {
+        setError('No location yet. Turn on location and try again.');
+        return;
+      }
+      const r = await submitReport({ kind: shot.kind, uri: shot.uri, mime: shot.mime, thumbUri: shot.thumbUri, caption: caption.trim(), capturedAt: shot.capturedAt, lat: place.lat, lon: place.lon });
+      setDone(r.result);
+      if (r.error) setError(r.error);
+    } catch (e) {
+      // e.g. the captured file could not be copied: say so instead of spinning forever
+      setError(String((e as Error).message ?? e));
+    } finally {
       setBusy(false);
-      return;
     }
-    const r = await submitReport({ kind: shot.kind, uri: shot.uri, mime: shot.mime, thumbUri: shot.thumbUri, caption: caption.trim(), capturedAt: shot.capturedAt, lat: place.lat, lon: place.lon });
-    setBusy(false);
-    setDone(r.result);
-    if (r.error) setError(r.error);
   };
 
   if (done) {
