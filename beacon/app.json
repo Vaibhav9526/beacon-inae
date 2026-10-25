@@ -1,0 +1,58 @@
+{
+  "expo": {
+    "name": "Beacon",
+    "slug": "beacon",
+    "scheme": "beacon",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "app.beacon.community",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "BLUETOOTH_SCAN",
+        "BLUETOOTH_ADVERTISE",
+        "BLUETOOTH_CONNECT",
+        "RECORD_AUDIO",
+        "CAMERA",
+        "VIBRATE"
+      ],
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-dev-client",
+      "expo-sqlite",
+      "expo-secure-store",
+      "expo-localization",
+      "expo-image",
+      "expo-camera",
+      "expo-location",
+      "expo-notifications",
+      [
+        "./plugins/withNdkVersion",
+        {
+          "ndkVersion": "30.0.14904198",
+          "cmakeVersion": "4.1.2"
+        }
+      ],
+      "expo-video",
+      "onnxruntime-react-native",
+      "expo-font",
+      "expo-audio"
+    ]
+  }
+}

@@ -1,0 +1,26 @@
+node_modules/
+.expo/
+dist/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.jks
+*.p8
+*.p12
+*.sqlite
+*.db
+metro.log
+.DS_Store
+.git.bak-nested/
+# build output
+beacon/android/build/
+beacon/android/app/build/
+beacon/android/.gradle/
+beacon/android/**/.cxx/
+beacon/android/local.properties
+# big models are fetched by beacon/scripts/fetch-models.mjs
+vendor/smolvlm/
+hub/data/

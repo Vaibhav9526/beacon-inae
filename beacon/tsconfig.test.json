@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "types": ["node"], "noEmit": true },
+  "include": ["src/**/__tests__/**/*.ts", "src"],
+  "exclude": ["node_modules", "android", "ios"]
+}

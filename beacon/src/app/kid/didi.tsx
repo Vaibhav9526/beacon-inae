@@ -1,0 +1,14 @@
+import React from 'react';
+import { View } from 'react-native';
+import { PersonaChat } from '../../components/PersonaChat';
+import { Screen } from '../../components/Screen';
+
+export default function DidiScreen() {
+  return (
+    <Screen back={false} scroll={false}>
+      <View style={{ flex: 1, paddingBottom: 84 }}>
+        <PersonaChat persona="didi" />
+      </View>
+    </Screen>
+  );
+}

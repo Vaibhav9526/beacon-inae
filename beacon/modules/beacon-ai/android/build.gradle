@@ -1,0 +1,31 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'app.beacon.ai'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.beaconai"
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+    externalNativeBuild {
+      cmake {
+        cppFlags "-std=c++17"
+        arguments "-DANDROID_STL=c++_shared"
+        // Needle ships an arm64 engine only; other ABIs build a stub so the app still runs (keyword routing)
+        abiFilters "arm64-v8a", "x86_64"
+      }
+    }
+  }
+  externalNativeBuild {
+    cmake {
+      path "src/main/cpp/CMakeLists.txt"
+    }
+  }
+}
+
+dependencies {
+}
