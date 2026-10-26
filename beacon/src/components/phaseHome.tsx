@@ -29,7 +29,16 @@ const go = (path: string) => () => router.navigate(path as never);
  * What the adult Home shows for the current phase: one banner, a row of quick actions and the "I am safe" text action.
  * Each action points at a real route.
  */
-export function usePhaseHome(): { phase: Phase; banner: PhaseBanner; quick: QuickAction[]; safe: { label: string; onPress: () => void } } {
+export function usePhaseHome(): {
+  phase: Phase;
+  banner: PhaseBanner;
+  quick: QuickAction[];
+  safe: { label: string; onPress: () => void };
+  /** hazard id for the lead alert (alert phase only, else null); feeds PersonalGuidance */
+  hazard: string | null;
+  /** lead alert severity (alert phase only, else null) */
+  severity: 'info' | 'watch' | 'warning' | 'severe' | null;
+} {
   const t = useT();
   const lang = useLang();
   const hi = lang === 'hi';
@@ -49,13 +58,16 @@ export function usePhaseHome(): { phase: Phase; banner: PhaseBanner; quick: Quic
   const shelter = { id: 'shelter', label: t('shelter'), icon: 'tent' as const, onPress: () => router.push({ pathname: '/map', params: { place: 'shelter' } } as never) };
   const hospital = { id: 'hospital', label: t('hospital'), icon: 'hospital' as const, onPress: () => router.push({ pathname: '/map', params: { place: 'hospital' } } as never) };
   const photo = { id: 'photo', label: L('Photo check', 'फोटो जाँच'), icon: 'camera' as const, onPress: go('/photo') };
+  const road = { id: 'road', label: L('Road reports', 'सड़क रिपोर्ट'), icon: 'navigate' as const, onPress: go('/road') };
 
   if (ph.phase === 'alert') {
     return {
       phase: 'alert',
       banner: { title: ph.lead?.title ?? L('Emergency mode', 'आपातकालीन मोड'), tint: 'pink', actionLabel: L('What to do', 'क्या करें'), onPress: guide },
-      quick: [call, shelter, hospital, photo],
+      quick: [call, shelter, hospital, photo, road],
       safe,
+      hazard,
+      severity: ph.lead?.severity ?? null,
     };
   }
 
@@ -69,6 +81,8 @@ export function usePhaseHome(): { phase: Phase; banner: PhaseBanner; quick: Quic
         hospital,
       ],
       safe,
+      hazard: null,
+      severity: null,
     };
   }
 
@@ -81,5 +95,7 @@ export function usePhaseHome(): { phase: Phase; banner: PhaseBanner; quick: Quic
     },
     quick: [shelter, hospital, photo, call],
     safe,
+    hazard: null,
+    severity: null,
   };
 }

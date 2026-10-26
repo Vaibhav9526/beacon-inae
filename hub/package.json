@@ -9,23 +9,78 @@
     "desktop": "electron electron/main.cjs",
     "mcp": "tsx engine/mcpStdio.ts",
     "test": "tsx --test \"engine/**/*.test.ts\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "icon": "node scripts/make-icon.mjs",
+    "bundle": "node scripts/bundle.mjs",
+    "dist": "npm run bundle && electron-builder --win --publish never",
+    "release": "npm run bundle && electron-builder --win --publish never"
   },
   "dependencies": {
+    "electron-updater": "^6.8.11"
+  },
+  "devDependencies": {
     "@anthropic-ai/sdk": "^1.3.0",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@noble/ciphers": "^2.4.0",
     "@noble/curves": "^2.4.0",
     "@noble/hashes": "^2.4.0",
-    "grammy": "^1.46.0",
-    "qrcode": "^1.5.4",
-    "zod": "^4.6.7"
-  },
-  "devDependencies": {
     "@types/node": "^26.6.5",
     "@types/qrcode": "^1.5.6",
     "electron": "^45.0.0",
+    "electron-builder": "^26.18.0",
+    "esbuild": "^0.28.2",
+    "grammy": "^1.46.0",
+    "png-to-ico": "^3.0.2",
+    "qrcode": "^1.5.4",
+    "sharp": "^0.34.5",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "zod": "^4.6.7"
+  },
+  "author": "Beacon",
+  "homepage": "https://github.com/Vaibhav9526/beacon-inae",
+  "main": "electron/main.cjs",
+  "build": {
+    "appId": "app.beacon.hub",
+    "productName": "Beacon Hub",
+    "copyright": "Beacon",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "dist",
+        "to": "dist"
+      }
+    ],
+    "artifactName": "Beacon-Hub-Setup-${version}.${ext}",
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "shortcutName": "Beacon Hub"
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://github.com/Vaibhav9526/beacon-inae/releases/download/hub-latest"
+      }
+    ]
   }
 }

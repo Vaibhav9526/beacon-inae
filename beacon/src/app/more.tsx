@@ -54,7 +54,15 @@ function BentoTile({
         <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: 'rgba(255,255,255,0.6)', alignItems: 'center', justifyContent: 'center' }}>
           <Icon name={icon} size={20} color={t.ink} />
         </View>
-        <Txt size={22} weight="700" color={t.ink} style={{ paddingRight: 44 }}>
+        <Txt
+          size={flex !== undefined ? 16 : 22}
+          weight="700"
+          color={t.ink}
+          numberOfLines={2}
+          adjustsFontSizeToFit
+          minimumFontScale={0.8}
+          ellipsizeMode="tail"
+          style={{ paddingRight: 44 }}>
           {label}
         </Txt>
         <View pointerEvents="none" style={{ position: 'absolute', right: -10, bottom: -10, transform: [{ rotate: `${tilt}deg` }] }}>
@@ -62,6 +70,16 @@ function BentoTile({
         </View>
       </Animated.View>
     </Pressable>
+  );
+}
+
+/** Small quiet label above a group of tiles. */
+function SectionLabel({ label }: { label: string }) {
+  const { p } = useTheme();
+  return (
+    <Txt size={12} weight="600" color={p.muted} style={{ letterSpacing: 0.4, marginTop: 6, marginBottom: -4, paddingHorizontal: 4 }}>
+      {label}
+    </Txt>
   );
 }
 
@@ -91,6 +109,8 @@ export default function More() {
         </View>
       </Appear>
 
+      <SectionLabel label={hi ? 'तैयारी और जवाब' : 'Prepare and respond'} />
+
       {/* the three phases: before, during, after */}
       <Appear index={1} style={{ flexDirection: 'row', gap: 12 }}>
         <View style={{ flex: 1 }}>
@@ -113,27 +133,50 @@ export default function More() {
         </View>
       </Appear>
 
-      <Appear index={2} style={{ flexDirection: 'row', gap: 12 }}>
-        <BentoTile flex={1} label={t('tabKids')} icon="family" tint="blue" deco={<Flower size={80} />} tilt={7} minH={104} onPress={go('/family')} />
-        <BentoTile flex={1} label={hi ? 'फोटो जाँच' : 'Photo check'} icon="camera" tint="yellow" deco={<Cross size={70} />} tilt={-8} minH={104} onPress={go('/photo')} />
+      <Appear index={3} style={{ flexDirection: 'row', gap: 12 }}>
+        <BentoTile flex={1} label={hi ? 'मेरी लोकेशन' : 'Locate me'} icon="pin" tint="blue" deco={<Wave size={62} />} tilt={-7} minH={104} onPress={go('/locate')} />
+        <BentoTile flex={1} label={hi ? 'झटका चेतावनी' : 'Shake warning'} icon="zap" tint="peach" deco={<Bolt size={66} />} tilt={8} minH={104} onPress={go('/quake')} />
       </Appear>
 
       <Appear index={3} style={{ flexDirection: 'row', gap: 12 }}>
-        <BentoTile flex={1} label={t('tabMap')} icon="map" tint="lilac" deco={<Wave size={62} />} tilt={-7} onPress={go('/adult/map')} />
-        <BentoTile flex={1} label={hi ? 'डेस्कटॉप हब' : 'Desktop hub'} icon="bot" tint="peach" deco={<Bolt size={62} />} tilt={9} onPress={go('/hub')} />
+        <BentoTile flex={1} label={hi ? 'लाइफ़बोट मोड' : 'Lifeboat mode'} icon="lifebuoy" tint="green" deco={<Drop size={62} />} tilt={-6} minH={104} onPress={go('/lifeboat')} />
+      </Appear>
+
+      <SectionLabel label={hi ? 'परिवार' : 'Family'} />
+
+      <Appear index={4} style={{ flexDirection: 'row', gap: 12 }}>
+        <BentoTile flex={1} label={t('tabKids')} icon="family" tint="blue" deco={<Flower size={80} />} tilt={7} minH={104} onPress={go('/family')} />
+        <BentoTile flex={1} label={hi ? 'परिवार खोजें' : 'Find family'} icon="compass" tint="green" deco={<Wave size={62} />} tilt={-8} minH={104} onPress={go('/findfamily')} />
       </Appear>
 
       <Appear index={4} style={{ flexDirection: 'row', gap: 12 }}>
+        <BentoTile flex={1} label={hi ? 'परिवार अभ्यास' : 'Family drills'} icon="bell" tint="yellow" deco={<Bell size={66} />} tilt={6} minH={104} onPress={go('/familydrill')} />
+        <BentoTile flex={1} label={hi ? 'घर की जानकारी' : 'Household'} icon="home" tint="pink" deco={<Ribbon size={62} />} tilt={-8} minH={104} onPress={go('/household')} />
+      </Appear>
+
+      <SectionLabel label={hi ? 'औज़ार' : 'Tools'} />
+
+      <Appear index={5} style={{ flexDirection: 'row', gap: 12 }}>
+        <BentoTile flex={1} label={hi ? 'फोटो जाँच' : 'Photo check'} icon="camera" tint="yellow" deco={<Cross size={70} />} tilt={-8} minH={104} onPress={go('/photo')} />
+        <BentoTile flex={1} label={t('tabMap')} icon="map" tint="lilac" deco={<Wave size={62} />} tilt={-7} minH={104} onPress={go('/adult/map')} />
+      </Appear>
+
+      <Appear index={5} style={{ flexDirection: 'row', gap: 12 }}>
+        <BentoTile flex={1} label={hi ? 'सड़क रिपोर्ट' : 'Road reports'} icon="navigate" tint="blue" deco={<Bolt size={62} />} tilt={7} minH={104} onPress={go('/road')} />
+        <BentoTile flex={1} label={hi ? 'डेस्कटॉप हब' : 'Desktop hub'} icon="bot" tint="peach" deco={<Bolt size={62} />} tilt={9} minH={104} onPress={go('/hub')} />
+      </Appear>
+
+      <Appear index={6} style={{ flexDirection: 'row', gap: 12 }}>
         <BentoTile flex={1} label={hi ? 'मेश की सेहत' : 'Mesh health'} icon="radio" tint="blue" deco={<Wave size={62} />} tilt={-7} onPress={go('/mesh')} />
         <BentoTile flex={1} label={hi ? 'निजता' : 'Privacy'} icon="lock" tint="pink" deco={<Shield size={60} />} tilt={8} onPress={go('/privacy')} />
       </Appear>
 
-      <Appear index={4} style={{ flexDirection: 'row', gap: 12 }}>
+      <Appear index={6} style={{ flexDirection: 'row', gap: 12 }}>
         <BentoTile flex={1} label={t('settings')} icon="settings" tint="blue" deco={<Ribbon size={62} />} tilt={-9} onPress={go('/settings')} />
         <BentoTile flex={1} label={t('language')} icon="language" tint="green" deco={<Drop size={62} />} tilt={8} onPress={go('/settings')} />
       </Appear>
 
-      <Appear index={5}>
+      <Appear index={7}>
         <BentoTile label={hi ? 'मदद और जानकारी' : 'Help and about'} icon="info" tint="lilac" deco={<Sun size={78} />} tilt={10} minH={104} onPress={go('/adult/aid')} />
       </Appear>
     </Screen>

@@ -24,3 +24,13 @@ beacon/android/local.properties
 # big models are fetched by beacon/scripts/fetch-models.mjs
 vendor/smolvlm/
 hub/data/
+# signing keys (never commit)
+*.jks
+*.keystore
+!beacon/android/app/debug.keystore
+*.keystore.b64
+keystore*.txt
+
+# desktop hub installer output
+hub/release/
+hub/dist/

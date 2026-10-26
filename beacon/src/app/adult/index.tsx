@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 import { dateLine } from '../../components/DayStrip';
 import { Icon } from '../../components/Icon';
+import { PersonalGuidance } from '../../components/PersonalGuidance';
 import { PhaseChip } from '../../components/PhaseChip';
 import { PixelAvatar, cast } from '../../components/PixelAvatar';
 import { usePhaseHome } from '../../components/phaseHome';
@@ -10,6 +11,7 @@ import { Screen } from '../../components/Screen';
 import { SosPanel } from '../../components/SosPanel';
 import { StatusPill } from '../../components/Status';
 import { TrendingList } from '../../components/TrendingStrip';
+import { UpdateBanner } from '../../components/UpdateBanner';
 import { WeatherCard } from '../../components/WeatherCard';
 import { Appear, Press, Row, Txt, useTheme } from '../../components/ui';
 import { fonts } from '../../theme';
@@ -46,7 +48,7 @@ export default function AdultHome() {
   );
   useEffect(() => () => stopWake(), []);
 
-  const { phase, banner, quick, safe } = usePhaseHome();
+  const { phase, banner, quick, safe, hazard, severity } = usePhaseHome();
   const bannerInk = p.tint[banner.tint].ink;
 
   return (
@@ -70,6 +72,10 @@ export default function AdultHome() {
           <StatusPill />
           <PhaseChip />
         </Row>
+      </Appear>
+
+      <Appear index={1}>
+        <UpdateBanner />
       </Appear>
 
       {said || partial ? (
@@ -101,6 +107,10 @@ export default function AdultHome() {
             </Txt>
           ) : null}
         </Press>
+      </Appear>
+
+      <Appear index={1}>
+        <PersonalGuidance phase={phase} hazard={hazard} severity={severity} />
       </Appear>
 
       <Appear index={2}>

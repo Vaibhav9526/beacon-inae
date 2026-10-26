@@ -17,6 +17,7 @@
     },
     "android": {
       "package": "app.beacon.community",
+      "versionCode": 10000,
       "adaptiveIcon": {
         "backgroundColor": "#BFE3F5",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -58,7 +59,8 @@
       "onnxruntime-react-native",
       "expo-font",
       "expo-audio",
-      "./plugins/withOrtPackage"
+      "./plugins/withOrtPackage",
+      "./plugins/withReleaseSigning"
     ]
   }
 }

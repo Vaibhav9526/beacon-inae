@@ -12,6 +12,7 @@ import { useMesh } from '../services/mesh';
 import { visionStatus } from '../services/vision';
 import { voiceStatus, voiceSupported } from '../services/voice';
 import { useLifeboat } from '../state/lifeboat';
+import Constants from 'expo-constants';
 import { useQuakeSettings } from '../state/quakeSettings';
 import { useSettings } from '../state/settings';
 import { radius } from '../theme';
@@ -275,6 +276,19 @@ export function SettingsView() {
         <View style={{ alignSelf: 'flex-start' }}>
           <Btn size="sm" kind="secondary" icon="refresh" label="Re-check" onPress={() => void startNeedle().then(() => visionStatus()).then((x) => setVision(x.available ? 'ready' : (x.reason ?? 'unavailable'))).catch(() => setVision('unavailable'))} />
         </View>
+
+        <View style={divider} />
+        <Row style={{ justifyContent: 'space-between', gap: 12 }}>
+          <View style={{ flex: 1 }}>
+            <Txt size={14} weight="500">
+              {lang === 'hi' ? 'ऐप अपडेट' : 'App updates'}
+            </Txt>
+            <Txt size={11.5} style={{ opacity: 0.75 }}>
+              {lang === 'hi' ? 'इंस्टॉल किया गया संस्करण' : 'Installed version'} {Constants.expoConfig?.version ?? '1.0.0'}
+            </Txt>
+          </View>
+          <Btn size="sm" kind="secondary" label={lang === 'hi' ? 'अपडेट जाँचें' : 'Check for updates'} onPress={() => router.push('/update' as never)} />
+        </Row>
 
         <View style={divider} />
         <Btn

@@ -1,0 +1,51 @@
+name: Release desktop Hub
+
+# Tag hub-v1.2.3 builds the Windows installer and publishes it. Phone APK releases use v* tags and are untouched.
+on:
+  push:
+    tags: ['hub-v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g. 1.0.1), used when run manually'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: hub
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: hub/package-lock.json
+      - run: npm ci
+      - name: Set version
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then V="${GITHUB_REF_NAME#hub-v}"; else V="${{ inputs.version }}"; fi
+          echo "VERSION=$V" >> "$GITHUB_ENV"
+          npm version "$V" --no-git-tag-version --allow-same-version
+      - name: Build installer
+        run: npm run release
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          cd release
+          FILES="Beacon-Hub-Setup-${VERSION}.exe Beacon-Hub-Setup-${VERSION}.exe.blockmap latest.yml"
+          # 1) versioned release hub-v<version> (what people download manually)
+          gh release view "hub-v${VERSION}" >/dev/null 2>&1 || gh release create "hub-v${VERSION}" --title "Beacon Hub ${VERSION}" --notes "Windows installer for Beacon Hub ${VERSION}. Not code-signed: Windows SmartScreen may warn on first run." --prerelease
+          gh release upload "hub-v${VERSION}" $FILES --clobber
+          # 2) rolling feed release hub-latest (what the in-app updater reads). Marked prerelease so it never
+          #    becomes the repo's "latest" release, which the phone app's v* releases own.
+          gh release view hub-latest >/dev/null 2>&1 || gh release create hub-latest --title "Beacon Hub update feed" --notes "Automatic update feed for the desktop Hub. Do not delete." --prerelease
+          gh release upload hub-latest $FILES --clobber

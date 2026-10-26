@@ -1,11 +1,12 @@
 // Beacon Hub desktop shell. Starts the hub engine as a child process, opens its local UI
 // in a window, and keeps running in the tray so the agents keep watching when the window closes.
-const { app, BrowserWindow, Tray, Menu, nativeImage, nativeTheme, shell, dialog } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, nativeTheme, shell, dialog, Notification } = require('electron');
 const { spawn } = require('node:child_process');
+const fs = require('node:fs');
 const path = require('node:path');
 
 const HUB_DIR = path.join(__dirname, '..');
-const ICON = path.join(HUB_DIR, 'ui', 'logo.png');
+const ICON = app.isPackaged ? path.join(process.resourcesPath, 'dist', 'ui', 'logo.png') : path.join(HUB_DIR, 'ui', 'logo.png');
 const OPEN_RE = /Open: (http:\/\/127\.0\.0\.1:\d+\/\?t=\w+)/;
 
 let win = null;
@@ -23,13 +24,22 @@ app.on('second-instance', () => showWindow());
 
 function startEngine() {
   return new Promise((resolve, reject) => {
-    // ELECTRON_RUN_AS_NODE makes the bundled Electron binary behave as plain Node, so no system Node is needed.
-    engine = spawn(process.execPath, ['--import', 'tsx', 'engine/main.ts'], {
-      cwd: HUB_DIR,
-      env: { ...process.env, PORT: '0', ELECTRON_RUN_AS_NODE: '1' },
-      windowsHide: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    // ELECTRON_RUN_AS_NODE makes the Electron binary behave as plain Node, so no system Node is needed.
+    // Packaged: run the esbuild bundle from resources (no TypeScript). Development: tsx on the sources.
+    let args;
+    let cwd;
+    const env = { ...process.env, PORT: '0', ELECTRON_RUN_AS_NODE: '1' };
+    if (app.isPackaged) {
+      args = [path.join(process.resourcesPath, 'dist', 'engine.mjs')];
+      cwd = path.join(process.resourcesPath, 'dist');
+      env.BEACON_HUB_UI_DIR = path.join(process.resourcesPath, 'dist', 'ui');
+      env.BEACON_HUB_DIR = path.join(app.getPath('userData'), 'hub-data');
+      fs.mkdirSync(env.BEACON_HUB_DIR, { recursive: true });
+    } else {
+      args = ['--import', 'tsx', 'engine/main.ts'];
+      cwd = HUB_DIR;
+    }
+    engine = spawn(process.execPath, args, { cwd, env, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
     let buf = '';
     const timer = setTimeout(() => reject(new Error('The hub engine did not start within 30 seconds.')), 30_000);
     engine.stdout.on('data', (chunk) => {
@@ -115,21 +125,95 @@ function showWindow() {
   win.focus();
 }
 
+// ---- Auto update (packaged builds only). Feed: GitHub release asset "hub-latest" (see docs/releasing.md). ----
+let updateReady = null; // version string once downloaded
+let autoUpdater = null;
+
+function logUpdate(msg) {
+  try {
+    fs.appendFileSync(path.join(app.getPath('userData'), 'updater.log'), `${new Date().toISOString()} ${msg}
+`);
+  } catch {}
+}
+
+function setupUpdater() {
+  if (!app.isPackaged) return;
+  try {
+    ({ autoUpdater } = require('electron-updater'));
+  } catch (e) {
+    logUpdate(`electron-updater unavailable: ${e.message}`);
+    return;
+  }
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.logger = { info: logUpdate, warn: logUpdate, error: logUpdate, debug: () => {} };
+  autoUpdater.on('checking-for-update', () => logUpdate('checking for update'));
+  autoUpdater.on('update-available', (i) => logUpdate(`update available ${i.version}`));
+  autoUpdater.on('update-not-available', () => logUpdate('no update available'));
+  autoUpdater.on('error', (e) => logUpdate(`update error: ${e && e.message}`));
+  autoUpdater.on('update-downloaded', (i) => {
+    updateReady = i.version;
+    logUpdate(`update downloaded ${i.version}`);
+    rebuildTrayMenu();
+    try {
+      const n = new Notification({ title: 'Beacon Hub update ready', body: `Beacon Hub ${i.version} will be installed when you quit.`, actions: [{ type: 'button', text: 'Restart now' }] });
+      n.on('action', () => installNow());
+      n.on('click', () => installNow());
+      n.show();
+    } catch (e) {
+      logUpdate(`notification failed: ${e.message}`);
+    }
+  });
+  setTimeout(() => checkForUpdates(false), 15_000);
+  setInterval(() => checkForUpdates(false), 6 * 60 * 60 * 1000);
+}
+
+function checkForUpdates(manual) {
+  if (!autoUpdater) {
+    if (manual) dialog.showMessageBox({ message: 'Updates are only checked in the installed app.' });
+    return;
+  }
+  // checkForUpdates rejects when offline or the feed is unreachable; that must never crash the app.
+  autoUpdater
+    .checkForUpdates()
+    .then((r) => {
+      if (manual && r && !r.isUpdateAvailable) dialog.showMessageBox({ message: `Beacon Hub ${app.getVersion()} is up to date.` });
+    })
+    .catch((e) => {
+      logUpdate(`update check failed: ${e && e.message}`);
+      if (manual) dialog.showMessageBox({ message: 'Could not check for updates. Are you online?' });
+    });
+}
+
+function installNow() {
+  quitting = true;
+  try {
+    autoUpdater.quitAndInstall(false, true);
+  } catch (e) {
+    logUpdate(`quitAndInstall failed: ${e.message}`);
+    app.quit();
+  }
+}
+
+function rebuildTrayMenu() {
+  if (!tray) return;
+  const items = [{ label: 'Open Beacon Hub', click: () => showWindow() }, { type: 'separator' }];
+  if (updateReady) items.push({ label: `Restart now to install ${updateReady}`, click: () => installNow() });
+  items.push({ label: 'Check for updates', click: () => checkForUpdates(true) });
+  items.push({ label: `Version ${app.getVersion()}`, enabled: false });
+  items.push({ type: 'separator' }, { label: 'Quit', click: () => app.quit() });
+  tray.setContextMenu(Menu.buildFromTemplate(items));
+}
+
 function createTray() {
   tray = new Tray(nativeImage.createFromPath(ICON).resize({ width: 16, height: 16 }));
   tray.setToolTip('Beacon Hub');
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      { label: 'Open Beacon Hub', click: () => showWindow() },
-      { type: 'separator' },
-      { label: 'Quit', click: () => app.quit() },
-    ]),
-  );
+  rebuildTrayMenu();
   tray.on('click', () => showWindow());
 }
 
 app.whenReady().then(async () => {
-  if (!app.isPackaged) app.setAppUserModelId?.('org.beacon.hub');
+  app.setAppUserModelId?.(app.isPackaged ? 'app.beacon.hub' : 'org.beacon.hub');
   try {
     await startEngine();
   } catch (e) {
@@ -139,6 +223,7 @@ app.whenReady().then(async () => {
   }
   createTray();
   createWindow();
+  setupUpdater();
 });
 
 // Keep running in the tray when the last window is closed.

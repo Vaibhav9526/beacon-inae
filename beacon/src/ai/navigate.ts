@@ -59,6 +59,13 @@ const ENTRIES: Entry[] = [
   { aliases: ['hub', 'हब'], route: '/hub', label: 'Opening hub' },
   { aliases: ['report', 'report something', 'report incident', 'report problem', 'रिपोर्ट', 'शिकायत'], route: '/report/new', label: 'Opening report' },
   { aliases: ['first aid', 'aid', 'प्राथमिक उपचार', 'फ़र्स्ट एड', 'फर्स्ट एड'], route: '/adult/aid', label: 'Opening first aid' },
+  { aliases: ['locate me', 'locate', 'mujhe dhundho', 'मुझे ढूंढो', 'मुझे ढूँढो'], route: '/locate', label: 'Opening locate me' },
+  { aliases: ['family drill', 'family drills', 'परिवार अभ्यास'], route: '/familydrill', label: 'Opening family drills' },
+  { aliases: ['lifeboat', 'lifeboat mode', 'लाइफबोट', 'लाइफ़बोट'], route: '/lifeboat', label: 'Opening lifeboat mode' },
+  { aliases: ['shake warning', 'shake alert', 'झटका चेतावनी'], route: '/quake', label: 'Opening shake warning' },
+  { aliases: ['find family', 'परिवार खोजो', 'परिवार ढूंढो'], route: '/findfamily', label: 'Opening find family' },
+  { aliases: ['road report', 'road reports', 'road status', 'सड़क रिपोर्ट'], route: '/road', label: 'Opening road reports' },
+  { aliases: ['household', 'household profile', 'घर की जानकारी'], route: '/household', label: 'Opening household' },
 
   // First-aid guides (ids from src/kb/firstaid.ts)
   { aliases: ['bleeding', 'severe bleeding', 'खून बहना', 'खून'], route: '/guide/severe-bleeding', label: 'Opening bleeding guide' },

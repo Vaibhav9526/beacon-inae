@@ -8,12 +8,17 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { startNeedle } from '../ai/needle';
 import { FallPrompt } from '../components/FallPrompt';
+import { LifeboatBanner } from '../components/LifeboatBanner';
+import { ShakeChip, ShakeWarning } from '../components/ShakeWarning';
 import { ThemeProvider } from '../components/ui';
 import { registerPush, setupNotifications, useAlerts } from '../services/alerts';
 import { startFallWatch, stopFallWatch } from '../services/fall';
+import { startBreadcrumbs, stopBreadcrumbs } from '../services/breadcrumbService';
 import { startFamilyPing, startGateway, stopFamilyPing } from '../services/gateway';
 import { startHubInbox } from '../services/hub';
+import { startLifeboatWatch } from '../services/lifeboat';
 import { useMesh } from '../services/mesh';
+import { useQuakeService } from '../services/quakeService';
 import { useSettings } from '../state/settings';
 import { usePalette } from '../theme';
 
@@ -45,12 +50,26 @@ export default function RootLayout() {
     return stopFallWatch;
   }, [hydrated, onboarded, fallDetect]);
 
+  useEffect(() => {
+    if (!hydrated || !onboarded) return;
+    return startLifeboatWatch();
+  }, [hydrated, onboarded]);
+
+  useEffect(() => {
+    if (!hydrated || !onboarded) return;
+    startBreadcrumbs();
+    return stopBreadcrumbs;
+  }, [hydrated, onboarded]);
+
+  // Hook: runs the shake watch only while its switch is on and the mesh is running (off by default).
+  useQuakeService();
+
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: p.bg }}>
       <SafeAreaProvider>
         <StatusBar style={p.dark ? 'light' : 'dark'} />
         {/* one theme for the whole tree, so every screen can call useTheme() */}
-        <ThemeProvider mode={mode ?? 'adult'}>{fontsLoaded ? <View style={{ flex: 1 }}><Stack screenOptions={{ headerShown: false, animation: 'fade_from_bottom', animationDuration: 200, contentStyle: { backgroundColor: p.bg } }} /><FallPrompt /></View> : <View style={{ flex: 1, backgroundColor: p.bg }} />}</ThemeProvider>
+        <ThemeProvider mode={mode ?? 'adult'}>{fontsLoaded ? <View style={{ flex: 1 }}><Stack screenOptions={{ headerShown: false, animation: 'fade_from_bottom', animationDuration: 200, contentStyle: { backgroundColor: p.bg } }} /><FallPrompt /><ShakeWarning /><ShakeChip /><LifeboatBanner /></View> : <View style={{ flex: 1, backgroundColor: p.bg }} />}</ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

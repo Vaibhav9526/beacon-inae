@@ -28,6 +28,20 @@ test('hindi and hinglish', () => {
   assert.equal(routeOf('भूकंप गाइड दिखाओ'), '/disaster/earthquake');
 });
 
+test('new feature screens, english and hindi', () => {
+  assert.equal(routeOf('locate me'), '/locate');
+  assert.equal(routeOf('mujhe dhundho'), '/locate');
+  assert.equal(routeOf('मुझे ढूंढो'), '/locate');
+  assert.equal(routeOf('family drill'), '/familydrill');
+  assert.equal(routeOf('lifeboat'), '/lifeboat');
+  assert.equal(routeOf('open lifeboat mode'), '/lifeboat');
+  assert.equal(routeOf('shake warning'), '/quake');
+  assert.equal(routeOf('find family'), '/findfamily');
+  assert.equal(routeOf('road report'), '/road');
+  assert.equal(routeOf('household'), '/household');
+  assert.equal(routeOf('family'), '/family');
+});
+
 test('first-aid and disaster guides use real ids', () => {
   assert.equal(routeOf('show earthquake guide'), '/disaster/earthquake');
   assert.equal(routeOf('bleeding'), '/guide/severe-bleeding');

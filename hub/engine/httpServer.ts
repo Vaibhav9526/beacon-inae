@@ -8,7 +8,7 @@ import type { HubApp } from './app.ts';
 import { toCap } from './cap.ts';
 import { cleanRoutes } from './gateway.ts';
 
-const UI = join(dirname(fileURLToPath(import.meta.url)), '..', 'ui');
+const UI = process.env.BEACON_HUB_UI_DIR || join(dirname(fileURLToPath(import.meta.url)), '..', 'ui');
 const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.png': 'image/png' };
 
 const body = (req: IncomingMessage) =>
