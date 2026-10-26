@@ -43,6 +43,12 @@ export interface Settings {
   readAloud: boolean;
   haptics: boolean;
   voiceControl: boolean;
+  /** Offline voice (Vosk model on the phone). Off = always use the Google recogniser. */
+  offlineVoice: boolean;
+  /** Which offline model: English (India) or Hindi. */
+  offlineVoiceLang: 'en' | 'hi';
+  /** The first-start background download has been attempted once; never repeated on its own. */
+  offlineVoiceAutoTried: boolean;
   shakeSos: boolean;
   fallDetect: boolean;
   /** Family pairing code. The child shares it with a parent. */
@@ -87,6 +93,9 @@ const initial: Settings = {
   readAloud: false,
   haptics: true,
   voiceControl: false,
+  offlineVoice: true,
+  offlineVoiceLang: 'en',
+  offlineVoiceAutoTried: false,
   shakeSos: true,
   fallDetect: false,
   familyCode: randomCode(),

@@ -1,9 +1,11 @@
 import { router } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { TextInput, View } from 'react-native';
 import { needleStatus, needleSupported, startNeedle } from '../ai/needle';
 import { DISCLAIMER } from '../kb';
 import { useLang, useT } from '../i18n';
+import { useVosk, voskSupported } from '../services/vosk';
+import { VOSK_MODELS } from '../services/voskLogic';
 import { cloud, cloudConfigured } from '../services/cloud';
 import { resetTtsStatus, ttsStatus, type VoiceRole, useEleven } from '../services/elevenlabs';
 import { speak } from '../services/speech';
@@ -74,6 +76,44 @@ function LifeboatRow() {
       <Row style={{ justifyContent: 'flex-end' }}>
         <Btn size="sm" kind="secondary" label="Open" onPress={() => router.push('/lifeboat' as never)} />
       </Row>
+    </View>
+  );
+}
+
+/** Offline voice (Vosk): switch, language, install / remove, size and download progress. Hidden when this build lacks the native part. */
+function OfflineVoiceRow() {
+  const t = useT();
+  const enabled = useSettings((x) => x.offlineVoice);
+  const vl = useSettings((x) => x.offlineVoiceLang);
+  const set = useSettings((x) => x.set);
+  const dl = useVosk((x) => x.dl);
+  useEffect(() => useVosk.getState().check(), [vl]);
+  if (!voskSupported()) return null;
+  const m = VOSK_MODELS[vl];
+  const status = dl.status === 'downloading' ? `${t('offlineVoiceDownloading')} ${dl.pct}%` : dl.status === 'ready' ? `${t('offlineVoiceReady')} · ${m.mb} MB` : dl.status === 'error' ? `${t('offlineVoiceFailed')}: ${dl.error ?? ''}` : `${m.mb} MB`;
+  return (
+    <View style={{ gap: 8 }}>
+      <Toggle label={t('offlineVoice')} value={enabled} onChange={(x) => set({ offlineVoice: x })} hint={t('offlineVoiceHint')} />
+      {enabled ? (
+        <>
+          <Row style={{ gap: 6 }}>
+            <Chip label={VOSK_MODELS.en.label} active={vl === 'en'} onPress={() => set({ offlineVoiceLang: 'en' })} />
+            <Chip label={VOSK_MODELS.hi.label} active={vl === 'hi'} onPress={() => set({ offlineVoiceLang: 'hi' })} />
+          </Row>
+          <Row style={{ justifyContent: 'space-between', gap: 12 }}>
+            <Txt size={12} style={{ flex: 1, opacity: 0.85 }}>
+              {status}
+            </Txt>
+            {dl.status === 'downloading' ? (
+              <Btn size="sm" kind="secondary" label={t('offlineVoiceCancel')} onPress={() => useVosk.getState().cancel()} />
+            ) : dl.status === 'ready' ? (
+              <Btn size="sm" kind="secondary" label={t('offlineVoiceRemove')} onPress={() => void useVosk.getState().remove()} />
+            ) : (
+              <Btn size="sm" kind="secondary" label={dl.status === 'error' ? t('offlineVoiceRetry') : t('offlineVoiceDownload')} onPress={() => void useVosk.getState().download()} />
+            )}
+          </Row>
+        </>
+      ) : null}
     </View>
   );
 }
@@ -198,6 +238,7 @@ export function SettingsView() {
         <Head icon="speaker" title="Voice" />
         <Toggle label={t('readAloudSetting')} value={s.readAloud} onChange={(x) => s.set({ readAloud: x })} />
         {s.mode !== 'kid' ? <Toggle label={t('voiceControl')} value={s.voiceControl} onChange={(x) => s.set({ voiceControl: x })} hint={v ? (v.onDevice ? 'on-device' : v.available ? 'uses the offline pack when installed' : t('voiceUnavailable')) : t('voiceUnavailable')} /> : null}
+        <OfflineVoiceRow />
         <Row style={{ gap: 8 }}>
           <Icon name="mic" size={14} />
           <Txt size={13} weight="600" style={{ flex: 1 }}>

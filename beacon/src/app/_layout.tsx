@@ -18,6 +18,7 @@ import { startFamilyPing, startGateway, stopFamilyPing } from '../services/gatew
 import { startHubInbox } from '../services/hub';
 import { startLifeboatWatch } from '../services/lifeboat';
 import { useMesh } from '../services/mesh';
+import { autoDownloadOfflineVoice } from '../services/vosk';
 import { useNotificationRouting } from '../services/notificationRouting';
 import { useQuakeService } from '../services/quakeService';
 import { useSettings } from '../state/settings';
@@ -41,6 +42,7 @@ export default function RootLayout() {
     startHubInbox();
     void registerPush();
     void startNeedle();
+    void autoDownloadOfflineVoice();
     if (mode === 'kid') startFamilyPing();
     return () => stopFamilyPing();
   }, [hydrated, onboarded, mode]);

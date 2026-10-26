@@ -206,6 +206,17 @@ export const STRINGS = {
   listening: ['Listening…', 'सुन रहा हूँ…'],
   heyBeacon: ['Say "Hey Beacon…"', '"हे बीकन…" कहें'],
   voiceUnavailable: ['Offline voice is not available on this phone. Typing still works.', 'इस फ़ोन पर ऑफ़लाइन आवाज़ उपलब्ध नहीं है। टाइप करना चालू है।'],
+  offlineVoice: ['Offline voice', 'ऑफ़लाइन आवाज़'],
+  offlineVoiceHint: ['Understands your voice on this phone, without internet or Google. Needs a one-time download.', 'आपकी आवाज़ इसी फ़ोन पर समझता है, बिना इंटरनेट या Google के। एक बार डाउनलोड करना होगा।'],
+  offlineVoiceDownload: ['Download', 'डाउनलोड'],
+  offlineVoiceRemove: ['Remove', 'हटाएँ'],
+  offlineVoiceCancel: ['Cancel', 'रद्द करें'],
+  offlineVoiceReady: ['Installed', 'इंस्टॉल है'],
+  offlineVoiceCard: ['Download offline voice ({mb} MB) so voice works without internet', 'ऑफ़लाइन आवाज़ ({mb} MB) डाउनलोड करें ताकि आवाज़ बिना इंटरनेट चले'],
+  offlineVoiceDownloading: ['Downloading offline voice', 'ऑफ़लाइन आवाज़ डाउनलोड हो रही है'],
+  offlineVoiceDone: ['Offline voice is ready. It works without internet now.', 'ऑफ़लाइन आवाज़ तैयार है। अब यह बिना इंटरनेट चलेगी।'],
+  offlineVoiceFailed: ['Offline voice download failed', 'ऑफ़लाइन आवाज़ डाउनलोड नहीं हो पाई'],
+  offlineVoiceRetry: ['Try again', 'फिर कोशिश करें'],
   didntCatch: ['I did not catch that.', 'मैं सुन नहीं पाया।'],
 
   // kid

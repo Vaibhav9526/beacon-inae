@@ -5,7 +5,8 @@ import Animated, { cancelAnimation, Easing, useAnimatedStyle, useSharedValue, wi
 import { useLang } from '../i18n';
 import { ElevenError, transcribe, useEleven } from '../services/elevenlabs';
 import { VOICE_TEXT } from '../ai/navigate';
-import { beginListen, ensureMic, voiceStatus, voiceSupported } from '../services/voice';
+import { beginListen, currentEngine, ensureMic, voiceSupported } from '../services/voice';
+import { useVosk, voskInstalled, voskSupported } from '../services/vosk';
 import { MAX_HOLD_MS, pressEnd, slidFarAway } from '../services/voiceHold';
 import { useSettings } from '../state/settings';
 import { Icon } from './Icon';
@@ -51,7 +52,7 @@ useEleven.subscribe((s) => {
  */
 export interface VoiceNotice {
   text: string;
-  kind: 'listening' | 'mic' | 'recogniser' | 'empty' | 'error';
+  kind: 'listening' | 'mic' | 'recogniser' | 'empty' | 'error' | 'download';
 }
 type NoticeFn = (n: VoiceNotice) => void;
 const noticeListeners = new Set<NoticeFn>();
@@ -76,7 +77,7 @@ const NO_PHONE_VOICE = 'Voice input is not available on this phone: install or u
 
 function phoneRecogniserReady(): boolean {
   try {
-    return voiceSupported() && !!voiceStatus().available;
+    return voiceSupported() && currentEngine() !== 'none';
   } catch {
     return false;
   }
@@ -91,6 +92,23 @@ function isAuthFailure(e: unknown): boolean {
 function reasonOf(e: unknown): string {
   if (e instanceof ElevenError) return e.reason || `HTTP ${e.status}`;
   return 'no connection to the speech service';
+}
+
+let lastOffer = 0;
+/**
+ * Pressing the mic while the offline model is missing (and the Google recogniser is being used instead) shows the
+ * download card, at most once every 5 minutes. The press itself carries on with the Google recogniser.
+ */
+function offerOfflineVoice(): void {
+  try {
+    const s = useSettings.getState();
+    if (!s.offlineVoice || !voskSupported() || voskInstalled() || useVosk.getState().dl.status === 'downloading') return;
+    if (Date.now() - lastOffer < 5 * 60 * 1000) return;
+    lastOffer = Date.now();
+    emitVoiceNotice({ text: '', kind: 'download' });
+  } catch {
+    /* the offer is optional */
+  }
 }
 
 /** One press, from press-in to the end of its capture. Only one can exist at a time. */
@@ -252,6 +270,7 @@ export function useVoiceCapture(onText: (text: string) => void, opts: VoiceCaptu
     }
     set('listening');
     emitVoiceNotice({ text: VOICE_TEXT.listening(lang), kind: 'listening' });
+    offerOfflineVoice();
     const listen = beginListen(lang, {
       maxMs: MAX_HOLD_MS,
       onPartial: (t) => {

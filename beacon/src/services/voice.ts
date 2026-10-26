@@ -4,6 +4,8 @@ import native from '../../modules/beacon-ai';
 import type { Lang } from '../kb/types';
 import { useSettings } from '../state/settings';
 import { transcriptOnRelease, RELEASE_GRACE_MS } from './voiceHold';
+import { voskInstalled, voskLang, voskSupported } from './vosk';
+import { buildGrammar, cleanVoskText, onlyUnknown, pickEngine, type Engine } from './voskLogic';
 
 /** Phrases the recogniser may produce for "Hey Beacon" in English and Hindi (it is a made-up word, so it is spelled many ways). */
 const WAKE = [
@@ -73,11 +75,155 @@ export interface PhoneListen {
   cancel(): void;
 }
 
+export interface ListenOptions {
+  maxMs?: number;
+  onPartial?: (text: string) => void;
+  /** 'free' (default): any speech. 'command': Vosk is limited to the app's phrases (see buildGrammar); other speech comes back empty. */
+  mode?: 'free' | 'command';
+}
+
+/** Which recogniser a listen would use right now: our offline one when its model is installed, else Google's, never both. */
+export function currentEngine(): Engine {
+  const s = useSettings.getState();
+  return pickEngine({
+    enabled: s.offlineVoice,
+    nativeVosk: voskSupported(),
+    installed: voskInstalled(),
+    googleAvailable: voiceSupported() && !!voiceStatus().available,
+  });
+}
+
 /**
- * Start the phone's own recogniser and say why it ended. Used by the hold-to-talk mic (press in = start, release =
- * release()) and by `listenOnce`. Every path resolves the result, so the caller can always reset its state.
+ * Start a single hold-to-talk listen and say why it ended. Used by the mic buttons (press in = start, release =
+ * release()) and by `listenOnce`. Vosk when its model is installed; if it cannot start, the Google recogniser is
+ * used instead (only after Vosk has fully stopped). Every path resolves the result.
  */
-export function beginListen(lang: Lang, opts: { maxMs?: number; onPartial?: (text: string) => void } = {}): PhoneListen {
+export function beginListen(lang: Lang, opts: ListenOptions = {}): PhoneListen {
+  if (currentEngine() !== 'vosk') return beginGoogleListen(lang, opts);
+  let released = false;
+  let cancelled = false;
+  let fallback: PhoneListen | null = null;
+  const v = beginVoskListen(lang, opts);
+  const result = v.result.then((r) => {
+    // Vosk could not start (no mic, load error): fall back to Google unless the user already let go
+    if (r.reason === 'error' && r.text === null && v.failedToStart() && !released && !cancelled) {
+      console.log('[voice] vosk failed to start, using the Google recogniser');
+      fallback = beginGoogleListen(lang, opts);
+      return fallback.result;
+    }
+    return r;
+  });
+  return {
+    result,
+    release() {
+      released = true;
+      v.release();
+      fallback?.release();
+    },
+    cancel() {
+      cancelled = true;
+      v.cancel();
+      fallback?.cancel();
+    },
+  };
+}
+
+interface VoskListen extends PhoneListen {
+  failedToStart(): boolean;
+}
+
+/** Hold-to-talk on Vosk. Release stops the recogniser, which flushes what it heard at once: no grace wait. */
+function beginVoskListen(lang: Lang, opts: ListenOptions): VoskListen {
+  let resolveResult!: (r: ListenResult) => void;
+  const result = new Promise<ListenResult>((r) => {
+    resolveResult = r;
+  });
+  const rec = native!;
+  const vl = voskLang();
+  let done = false;
+  let startFailed = false;
+  let partial = '';
+  const subs: { remove(): void }[] = [];
+  const command = opts.mode === 'command';
+
+  const finish = (text: string | null, reason: ListenReason) => {
+    if (done) return;
+    done = true;
+    clearTimeout(maxTimer);
+    subs.forEach((s) => s.remove());
+    useVoice.setState({ listening: false, partial: '' });
+    console.log('[voice] listen end (vosk)', reason, text ?? '');
+    resolveResult({ text, reason });
+  };
+  const stopAndFinish = async () => {
+    if (done) return;
+    let text = '';
+    try {
+      text = (await rec.voskStop()).text;
+    } catch {
+      /* use what we heard */
+    }
+    // command mode: a phrase list result that is only "[unk]" means nothing recognisable was said
+    const heard = cleanVoskText(text) || cleanVoskText(partial);
+    if (heard) finish(heard, 'ok');
+    else finish(null, command && (onlyUnknown(text) || onlyUnknown(partial)) ? 'no-match' : 'silence');
+  };
+  const maxTimer = setTimeout(() => void stopAndFinish(), opts.maxMs ?? 9000);
+
+  subs.push(
+    rec.addListener('voskPartial', (e) => {
+      partial = e.text;
+      const clean = cleanVoskText(e.text);
+      useVoice.setState({ partial: clean });
+      opts.onPartial?.(clean);
+    }),
+    rec.addListener('voskError', (e) => {
+      console.log('[voice] vosk error', e.code, e.message);
+      useVoice.setState({ error: e.message });
+    }),
+  );
+
+  stopWake();
+  const grammar = command ? buildGrammar(vl) : null;
+  rec
+    .voskStart(vl, grammar)
+    .then((r) => {
+      if (!r.ok) {
+        startFailed = true;
+        useVoice.setState({ error: r.error ?? 'could not start' });
+        finish(null, 'error');
+      } else if (!done) {
+        useVoice.setState({ listening: true, error: null });
+      }
+    })
+    .catch(() => {
+      startFailed = true;
+      finish(null, 'error');
+    });
+
+  return {
+    result,
+    failedToStart: () => startFailed,
+    release() {
+      void stopAndFinish();
+    },
+    cancel() {
+      if (!done) {
+        try {
+          rec.voskCancel();
+        } catch {
+          /* already stopped */
+        }
+        finish(null, 'cancelled');
+      }
+    },
+  };
+}
+
+/**
+ * The Google (phone) recogniser: start it and say why it ended. Release waits RELEASE_GRACE_MS for the final words.
+ */
+function beginGoogleListen(lang: Lang, opts: ListenOptions = {}): PhoneListen {
   let resolveResult!: (r: ListenResult) => void;
   const result = new Promise<ListenResult>((r) => {
     resolveResult = r;

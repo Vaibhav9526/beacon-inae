@@ -7,6 +7,7 @@
 
 import { getDisaster, getGuide, pick } from '../kb';
 import type { Lang } from '../kb/types';
+import { fuzzyAliasScore } from './fuzzy';
 import { SCREENS, addHints } from './intents';
 import { CONFIRM_BELOW, route, stripNegated, type NeedleEngine, type RouteResult } from './router';
 import { FIRST_AID_TOPICS, type Action, isNavigation, needsConfirmation } from './tools';
@@ -269,6 +270,19 @@ export function guessScreens(text: string): string[] {
       if (a && padded.includes(` ${a} `)) best = Math.max(best, a.length + a.split(' ').length * 3);
     }
     if (best) scored.push([id, best]);
+  }
+  if (scored.length === 0) {
+    // nothing matched exactly: allow a letter or two to be mis-heard ("open whether" -> weather)
+    const tokens = core(text).split(' ').filter(Boolean);
+    for (const [id, s] of Object.entries(SCREENS)) {
+      if (GUESS_SKIP.has(id)) continue;
+      let best = 0;
+      for (const alias of s.aliases) {
+        const a = normaliseSpeech(alias);
+        if (a) best = Math.max(best, fuzzyAliasScore(tokens, a));
+      }
+      if (best) scored.push([id, best]);
+    }
   }
   return scored.sort((x, y) => y[1] - x[1]).map(([id]) => id);
 }

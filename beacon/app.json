@@ -3,7 +3,7 @@
     "name": "Beacon",
     "slug": "beacon",
     "scheme": "beacon",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -17,7 +17,7 @@
     },
     "android": {
       "package": "app.beacon.community",
-      "versionCode": 10000,
+      "versionCode": 10001,
       "adaptiveIcon": {
         "backgroundColor": "#BFE3F5",
         "foregroundImage": "./assets/android-icon-foreground.png",

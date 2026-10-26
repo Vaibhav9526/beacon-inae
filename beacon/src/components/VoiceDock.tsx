@@ -15,8 +15,11 @@ import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { runAction } from '../ai/actions';
 import { type Choice, type Decision, interpret, VOICE_TEXT } from '../ai/navigate';
 import { startNeedle } from '../ai/needle';
+import { translate } from '../i18n';
 import { speak } from '../services/speech';
 import { voiceEngine } from '../services/voiceCommands';
+import { useVosk, voskLang } from '../services/vosk';
+import { VOSK_MODELS } from '../services/voskLogic';
 import { useSettings } from '../state/settings';
 import { subscribeVoiceNotice, type VoiceNotice } from './MicButton';
 import { Press, Txt } from './ui';
@@ -42,6 +45,8 @@ export interface Toast {
   typing?: { onSubmit: (text: string) => void };
   /** "Did you mean: X?" card with big Yes / No buttons and up to two other guesses. */
   confirm?: { primary: Choice; alternatives: Choice[]; yesLabel: string; noLabel: string; onChoose: (c: Choice) => void; onDismiss: () => void };
+  /** 0..1: shows a progress bar under the text (offline voice download). */
+  progress?: number;
   /** Closes the toast (Undo uses it). */
   onDismiss?: () => void;
 }
@@ -106,7 +111,9 @@ export function useVoiceCommands() {
   // notices from the mic (listening, mic off, no recogniser, nothing heard)
   const handleNotice = useRef<(n: VoiceNotice) => void>(() => {});
   handleNotice.current = (n: VoiceNotice) => {
-    if (n.kind === 'listening') {
+    if (n.kind === 'download') {
+      showDownloadCard();
+    } else if (n.kind === 'listening') {
       show({ text: n.text }, LISTEN_MS);
     } else if (n.kind === 'mic') {
       reply(n.text, { buttons: [{ label: VOICE_TEXT.openSettings(lang()), onPress: () => void Linking.openSettings().catch(() => {}) }, typeButton()] }, CONFIRM_MS);
@@ -115,6 +122,36 @@ export function useVoiceCommands() {
     }
   };
   useEffect(() => subscribeVoiceNotice((n) => handleNotice.current(n)), []);
+
+  // ---- offline voice download card: offer, progress bar, result ----
+  const dlCard = useRef(false);
+  const showDownloadCard = () => {
+    const l = lang();
+    dlCard.current = true;
+    const text = translate('offlineVoiceCard', l).replace('{mb}', String(VOSK_MODELS[voskLang()].mb));
+    show({ text, buttons: [{ label: translate('offlineVoiceDownload', l), onPress: () => void useVosk.getState().download() }] }, CONFIRM_MS);
+  };
+  useEffect(
+    () =>
+      useVosk.subscribe((st, prev) => {
+        if (!dlCard.current || (st.dl.status === prev.dl.status && st.dl.pct === prev.dl.pct)) return;
+        const l = lang();
+        const d = st.dl;
+        if (d.status === 'downloading') {
+          show({ text: `${translate('offlineVoiceDownloading', l)} ${d.pct}%`, progress: d.pct / 100, buttons: [{ label: translate('offlineVoiceCancel', l), onPress: () => useVosk.getState().cancel() }] }, 0);
+        } else if (d.status === 'ready') {
+          dlCard.current = false;
+          reply(translate('offlineVoiceDone', l), {}, 3500);
+        } else if (d.status === 'error') {
+          dlCard.current = false;
+          show({ text: `${translate('offlineVoiceFailed', l)}: ${d.error ?? ''}`, buttons: [{ label: translate('offlineVoiceRetry', l), onPress: () => { dlCard.current = true; void useVosk.getState().download(); } }] }, CONFIRM_MS);
+        } else if (d.status === 'missing') {
+          dlCard.current = false;
+          hide();
+        }
+      }),
+    [],
+  );
 
   /** Yes on the card (or one of the alternatives): this is the explicit tap that sending or calling needs. */
   const choose = async (c: Choice) => {
@@ -305,7 +342,7 @@ export function VoiceToast({ toast }: { toast: Toast | null }) {
   const buttons = toast.buttons ?? [];
   return (
     <Animated.View
-      key={toast.text}
+      key={toast.progress !== undefined ? 'progress' : toast.text}
       entering={FadeIn.duration(120)}
       exiting={FadeOut.duration(300)}
       pointerEvents={buttons.length || toast.undo ? 'auto' : 'none'}
@@ -315,6 +352,11 @@ export function VoiceToast({ toast }: { toast: Toast | null }) {
           <Txt size={13} weight="600" color="#fff">
             {toast.text}
           </Txt>
+          {toast.progress !== undefined ? (
+            <View style={styles.bar}>
+              <View style={[styles.barFill, { width: `${Math.round(Math.min(1, Math.max(0, toast.progress)) * 100)}%` }]} />
+            </View>
+          ) : null}
           {buttons.length ? (
             <View style={styles.btnRow}>
               {buttons.map((b, i) => (
@@ -368,6 +410,8 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     maxWidth: 300,
   },
+  bar: { height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.25)', overflow: 'hidden' },
+  barFill: { height: 6, borderRadius: 3, backgroundColor: '#FFC928' },
   toastText: { flexShrink: 1, gap: 8 },
   toastRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   btnRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
