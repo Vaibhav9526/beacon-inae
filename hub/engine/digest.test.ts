@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildDigest, escapeHtml, formatItemPost, labelData, splitHtml, stripHtml } from './digest.ts';
+import { buildDigest, escapeHtml, formatItemPost, labelData, manualRunItems, nowSentence, splitHtml, stripHtml } from './digest.ts';
 import type { FeedItem } from './types.ts';
 
 const NOW = Date.UTC(2026, 9, 26, 6, 30);
@@ -162,4 +162,36 @@ test('formatItemPost: big single post, escaped, link only for http(s)', () => {
 
 test('buildDigest rejects an empty list', () => {
   assert.throws(() => buildDigest([], { now: NOW }));
+});
+
+test('nowSentence: the current numbers in plain words, with the wind direction', () => {
+  assert.equal(
+    nowSentence({ temp_c: 31, feels_like_c: 36, wind_kmh: 14, wind_dir_deg: 315, wind_gust_kmh: 28, humidity_pct: 62, rain_mm_1h: 0 }, 'Raipur'),
+    'Raipur now: 31 C, feels 36 C, wind 14 km/h from the north-west, gusts 28 km/h, humidity 62%, rain 0 mm in the last hour.',
+  );
+  assert.equal(nowSentence({ aqi: 180, pm25: 91.26 }), 'Now: air quality index 180 (PM2.5 91.3 ug/m3).');
+  assert.equal(nowSentence({}), '');
+});
+
+test('manualRunItems: current conditions become one now item; forecast, alerts and news pass through', () => {
+  const current = it('c1', { kind: 'weather', place: 'Raipur', title: 'Raipur 31 C', detail: 'Temperature 31 C.', data: { temp_c: 31, feels_like_c: 36, humidity_pct: 62 }, tags: ['owm', 'current'] });
+  const wind = it('w1', { kind: 'wind', place: 'Raipur', severity: 'watch', title: 'Raipur wind 14 km/h', data: { wind_kmh: 14, wind_gust_kmh: 28, wind_dir_deg: 315 }, tags: ['owm', 'current'] });
+  const forecast = it('f1', { kind: 'weather', title: 'Next 24 hours', data: { temp_max_c: 38 }, tags: ['owm', 'forecast'] });
+  const news = it('n1', { kind: 'news', title: 'A headline' });
+  const out = manualRunItems([current, wind, forecast, news], NOW);
+  assert.equal(out.length, 3);
+  const [now, ...rest] = out as [FeedItem, ...FeedItem[]];
+  assert.equal(now.id, `now-a1-${NOW}`);
+  assert.equal(now.severity, 'watch', 'strongest severity of the merged items');
+  assert.equal(now.title, 'Weather now in Raipur: 31 C, feels like 36 C');
+  assert.equal(now.body, 'Raipur now: 31 C, feels 36 C, wind 14 km/h from the north-west, gusts 28 km/h, humidity 62%.');
+  assert.ok(now.detail!.startsWith(now.body), 'the detail starts with the same plain sentence');
+  assert.ok(now.detail!.includes('Temperature 31 C.'), 'the detail keeps the node text');
+  assert.deepEqual(rest.map((i) => i.id), ['f1', 'n1']);
+  assert.ok(!now.tags.includes('forecast'));
+});
+
+test('manualRunItems: nothing current means the items come back unchanged', () => {
+  const news = it('n1', { kind: 'news', title: 'A headline' });
+  assert.deepEqual(manualRunItems([news], NOW), [news]);
 });

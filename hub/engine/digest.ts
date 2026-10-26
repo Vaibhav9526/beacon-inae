@@ -1,3 +1,4 @@
+import { compass } from './owm.ts';
 import { SEVERITY_RANK, type FeedItem, type FeedKind, type Severity } from './types.ts';
 
 /** Telegram allows 4096 characters per message; we stay under with room for closing tags. */
@@ -49,6 +50,7 @@ const KNOWN: Record<string, [string, string]> = {
   humidity_pct: ['Humidity', '%'],
   wind_kmh: ['Wind', 'km/h'],
   wind_gust_kmh: ['Gusts', 'km/h'],
+  wind_dir_deg: ['Wind direction', 'deg'],
   rain_mm_24h: ['Rain in 24 h', 'mm'],
   rain_mm_3h: ['Rain in 3 h', 'mm'],
   rain_mm_now: ['Rain now', 'mm'],
@@ -355,4 +357,105 @@ export function buildDigest(items: FeedItem[], opts: DigestOpts): { phoneItem: F
   push(footer, '\n\n');
   if (cur) messages.push(cur);
   return { phoneItem, telegram: messages.flatMap((m) => splitHtml(m)) };
+}
+
+/* ---------- a manual Run: the current weather in plain words ---------- */
+
+const CURRENT_KEYS = ['temp_c', 'feels_like_c', 'wind_kmh', 'wind_gust_kmh', 'humidity_pct', 'rain_mm_1h', 'rain_mm_24h', 'pressure_hpa', 'visibility_km', 'aqi', 'pm25'];
+const CURRENT_KINDS: readonly FeedKind[] = ['weather', 'wind', 'flood', 'advisory'];
+const FORECAST_TAGS = ['forecast', 'next24h'];
+
+/** An item that describes the weather right now: not a forecast, not an alert, not news. */
+export function isCurrentConditions(it: FeedItem): boolean {
+  if (!CURRENT_KINDS.includes(it.kind) || it.tags.some((t) => FORECAST_TAGS.includes(t)) || !it.data) return false;
+  return CURRENT_KEYS.some((k) => typeof it.data![k] === 'number');
+}
+
+/**
+ * The current numbers as one plain sentence, e.g.
+ * "Raipur now: 31 C, feels 36 C, wind 14 km/h from the north-west, gusts 28 km/h, humidity 62%, rain 0 mm in the last hour."
+ * Only the numbers that are there are used. Empty string when there are none.
+ */
+export function nowSentence(data: Record<string, number | string>, place?: string): string {
+  const num = (k: string): string | undefined => (typeof data[k] === 'number' && Number.isFinite(data[k]) ? fmtNum(data[k] as number) : undefined);
+  const bits: string[] = [];
+  const temp = num('temp_c');
+  if (temp !== undefined) bits.push(`${temp} C`);
+  const feels = num('feels_like_c');
+  if (feels !== undefined) bits.push(`feels ${feels} C`);
+  const wind = num('wind_kmh');
+  if (wind !== undefined) {
+    const dir = typeof data.wind_dir_deg === 'number' ? compass(data.wind_dir_deg) : '';
+    bits.push(`wind ${wind} km/h${dir ? ` from the ${dir}` : ''}`);
+  }
+  const gust = num('wind_gust_kmh');
+  if (gust !== undefined) bits.push(`gusts ${gust} km/h`);
+  const humidity = num('humidity_pct');
+  if (humidity !== undefined) bits.push(`humidity ${humidity}%`);
+  const rainHour = num('rain_mm_1h');
+  const rain24 = num('rain_mm_24h');
+  if (rainHour !== undefined) bits.push(`rain ${rainHour} mm in the last hour`);
+  else if (rain24 !== undefined) bits.push(`rain ${rain24} mm in 24 hours`);
+  const pressure = num('pressure_hpa');
+  if (pressure !== undefined) bits.push(`pressure ${pressure} hPa`);
+  const visibility = num('visibility_km');
+  if (visibility !== undefined) bits.push(`visibility ${visibility} km`);
+  const aqi = num('aqi');
+  if (aqi !== undefined) {
+    const pm25 = num('pm25');
+    bits.push(`air quality index ${aqi}${pm25 !== undefined ? ` (PM2.5 ${pm25} ug/m3)` : ''}`);
+  }
+  if (!bits.length) return '';
+  return `${place ? `${place} now` : 'Now'}: ${bits.join(', ')}.`;
+}
+
+/**
+ * What a manual Run sends. The current-conditions items of the run become ONE "now" item: the plain sentence is its body
+ * and the start of its detail, its data is merged, and it carries the strongest severity. Every other item (forecast,
+ * alerts, news, quakes) goes as it is. With no current-conditions items the list comes back unchanged.
+ */
+export function manualRunItems(items: FeedItem[], at: number): FeedItem[] {
+  const current = items.filter(isCurrentConditions);
+  if (!current.length) return items;
+  const rest = items.filter((i) => !isCurrentConditions(i));
+  const data: Record<string, number | string> = {};
+  for (const it of current) for (const [k, v] of Object.entries(it.data ?? {})) if (!(k in data)) data[k] = v;
+  const place = current.find((i) => i.place)?.place;
+  const sentence = nowSentence(data, place);
+  const lead = [...current].sort(bySeverity)[0]!;
+  const temp = typeof data.temp_c === 'number' ? fmtNum(data.temp_c) : undefined;
+  const feels = typeof data.feels_like_c === 'number' ? fmtNum(data.feels_like_c) : undefined;
+  const title = `Weather now${place ? ` in ${place}` : ''}${temp !== undefined ? `: ${temp} C${feels !== undefined ? `, feels like ${feels} C` : ''}` : ''}`;
+  const extra = [...new Set(current.map((i) => i.detail?.trim()).filter((d): d is string => !!d))];
+  let detail = [sentence, ...extra].filter(Boolean).join('\n\n');
+  if (detail.length > DETAIL_PHONE_MAX) detail = detail.slice(0, DETAIL_PHONE_MAX - 4).replace(/\n[^\n]*$/, '') + '\n...';
+  const now: FeedItem = {
+    id: `now-${lead.agentId}-${at}`,
+    agentId: lead.agentId,
+    agentName: lead.agentName,
+    kind: current.some((i) => i.kind === 'weather') ? 'weather' : lead.kind,
+    title,
+    body: sentence || lead.body,
+    severity: lead.severity,
+    at,
+    tags: [...new Set([...current.flatMap((i) => i.tags), 'now'])].filter((t) => t !== 'digest' && t !== 'notify'),
+    data,
+    detail,
+  };
+  if (place) now.place = place;
+  return [now, ...rest];
+}
+
+/** Telegram posts packed into as few messages as fit (one approval each), each still split if a single post is too long. */
+export function packPosts(posts: string[], max = TELEGRAM_MAX): string[] {
+  const out: string[] = [];
+  let cur = '';
+  for (const p of posts) {
+    if (cur && cur.length + 2 + p.length > max) {
+      out.push(cur);
+      cur = p;
+    } else cur = cur ? `${cur}\n\n${p}` : p;
+  }
+  if (cur) out.push(cur);
+  return out.flatMap((m) => splitHtml(m, max));
 }

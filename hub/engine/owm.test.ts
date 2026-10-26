@@ -297,15 +297,17 @@ test('catalog and templates are valid', () => {
 test('app stores the key privately, hides it in state, and cleans pasted input', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'owm-'));
   const app = new HubApp({ dir, offline: true, interactive: false });
-  assert.deepEqual(app.state().connections.openWeather, { hasKey: false });
+  assert.equal(app.state().connections.openWeather.hasKey, false);
   assert.equal((await app.testOpenWeather()).error, 'Add your OpenWeather key in Connections');
   app.setOpenWeatherKey(`  "${KEY}"\n`);
-  assert.deepEqual(app.state().connections.openWeather, { hasKey: true });
+  assert.equal(app.state().connections.openWeather.hasKey, true);
   assert.ok(!JSON.stringify(app.state()).includes(KEY));
   assert.equal(JSON.parse(readFileSync(join(dir, 'secrets.json'), 'utf8')).openWeatherKey, KEY);
   if (process.platform !== 'win32') assert.equal(statSync(join(dir, 'secrets.json')).mode & 0o077, 0);
   app.setOpenWeatherKey('');
-  assert.deepEqual(app.state().connections.openWeather, { hasKey: false });
+  assert.equal(app.state().connections.openWeather.hasKey, true, 'an empty save keeps the key');
+  app.removeOpenWeatherKey();
+  assert.equal(app.state().connections.openWeather.hasKey, false);
 });
 
 test('settings endpoint saves the key without echoing it; test endpoint answers', async () => {
@@ -323,7 +325,7 @@ test('settings endpoint saves the key without echoing it; test endpoint answers'
     assert.equal(JSON.parse(put.text).openWeather.hasKey, true);
     const st = await call('GET', '/api/state');
     assert.ok(!st.text.includes(KEY));
-    app.setOpenWeatherKey('');
+    app.removeOpenWeatherKey();
     const t = await call('POST', '/api/owm/test', {});
     assert.equal(t.status, 200);
     assert.equal(JSON.parse(t.text).ok, false);

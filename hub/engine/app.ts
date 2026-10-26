@@ -7,6 +7,8 @@ import { anthropicBrain, cliBrain, haikuWriter, ruleFromText } from './brains.ts
 import type { Brain } from './brains.ts';
 import { parseHealthCsv } from './csvImport.ts';
 import { Gateway } from './gateway.ts';
+import type { DeliveryReport } from './gateway.ts';
+import { manualRunItems } from './digest.ts';
 import { HealthStore, newKey } from './healthStore.ts';
 import { Hub } from './hub.ts';
 import { McpClients } from './mcpClients.ts';
@@ -21,8 +23,8 @@ import { PERSONAS, personaById } from './personas.ts';
 import { computeSituation } from './situation.ts';
 import type { Situation } from './situation.ts';
 import { instantiate, templateById, TEMPLATES } from './templates.ts';
-import { TelegramLink } from './telegram.ts';
-import type { TelegramState } from './telegram.ts';
+import { classifyTelegramError, cleanTelegramToken, getBotName, TelegramLink, TelegramSupervisor } from './telegram.ts';
+import type { SupervisorDeps, TelegramState, TelegramStatus } from './telegram.ts';
 import type { Agent, Alert, Channel, FeedItem, GatewayRoute, GroupMessage, Member, MemberRole, NodeSpec, WireMessage } from './types.ts';
 import { chunkFeed, decodeWire, encodeWire, newGroupKey } from './wire.ts';
 
@@ -89,6 +91,29 @@ export function cleanRelayUrl(input: string): string {
  * Everything the hub is, wired together, with no HTTP in it. The local web UI, the MCP server and the tests all
  * talk to this. Secrets live in `secrets.json` next to the data (the Electron shell moves them to the OS keychain).
  */
+/** The one line the Run button shows: what was sent, or why it was not. */
+export function deliveryLine(r: DeliveryReport | undefined, items: number): string {
+  if (!r) return items ? 'Not sent: the hub could not hand the items to the phones or Telegram.' : 'Nothing to send: this run found no items.';
+  if (r.telegram === 'none' && !r.phones) return 'Nothing new to send: these items were sent before.';
+  const phones = r.phones === 1 ? '1 phone' : `${r.phones} phones`;
+  const tg = r.telegram === 'sent';
+  const tgWhy = r.telegram === 'off' ? 'Telegram is not connected' : r.telegramNote ?? 'Telegram did not send';
+  if (r.phones && tg) return `Sent to ${phones} and Telegram`;
+  if (r.phones) return `Sent to ${phones}. Telegram: ${tgWhy}.`;
+  if (tg) return `Sent to Telegram. No phone received it: ${r.phonesPaired ? 'the phones could not be reached' : 'no phone is paired'}.`;
+  const why = `${r.phonesPaired ? 'the phones could not be reached' : 'no phone is paired'} and ${tgWhy.charAt(0).toLowerCase()}${tgWhy.slice(1)}`;
+  return `Not sent: ${why}.`;
+}
+
+/**
+ * What Connections may show about a saved secret: that it is saved and the last four characters, never more. Short
+ * values show only "Saved", so a short secret is never mostly revealed.
+ */
+export function keyHint(secret?: string): string {
+  if (!secret) return '';
+  return secret.length >= 12 ? `Saved (ends ...${secret.slice(-4)})` : 'Saved';
+}
+
 export class HubApp {
   readonly dir: string;
   readonly hub: Hub;
@@ -116,7 +141,23 @@ export class HubApp {
   private relayTimer: ReturnType<typeof setInterval> | null = null;
   readonly offline: boolean;
 
-  constructor(opts: { dir?: string; offline?: boolean; extraSenders?: Sender[]; interactive?: boolean; link?: BeaconLink } = {}) {
+  readonly telegramSup: TelegramSupervisor;
+  private telegramProbe: (token: string) => Promise<string>;
+
+  /**
+   * `telegramStart` and `telegramProbe` replace the real Telegram calls in tests; `telegramDelays` shortens the retry waits.
+   * The data folder is `opts.dir`, else BEACON_HUB_DIR, else ~/.beacon-hub (see electron/main.cjs for the desktop folder).
+   */
+  constructor(opts: {
+    dir?: string;
+    offline?: boolean;
+    extraSenders?: Sender[];
+    interactive?: boolean;
+    link?: BeaconLink;
+    telegramStart?: SupervisorDeps['start'];
+    telegramProbe?: (token: string) => Promise<string>;
+    telegramDelays?: number[];
+  } = {}) {
     this.interactive = opts.interactive ?? true;
     this.dir = opts.dir ?? process.env.BEACON_HUB_DIR ?? join(homedir(), '.beacon-hub');
     this.offline = opts.offline ?? process.env.BEACON_HUB_OFFLINE === '1';
@@ -155,9 +196,12 @@ export class HubApp {
         for (const b of blobs) await this.link.sendToPhone(deviceId, b);
       },
       // Telegram copies of feed items still go through the first-send approval and the audit log
+      // a refused or failed send throws, so the gateway can report it (the outbox itself does not throw)
       sendTelegram: async (text, o) => {
+        if (!this.telegram) throw new Error('Telegram is not connected');
         const alert: Alert = { id: `feed-${Date.now().toString(36)}`, severity: 'warning', title: 'Feed', body: text, channels: ['telegram'], signals: [], at: Date.now(), status: 'pending-approval' };
-        await this.outbox.deliver(alert, text, o);
+        const done = await this.outbox.deliver(alert, text, o);
+        if (done.status !== 'sent') throw new Error(done.note ?? 'Telegram did not take the message');
       },
     });
     this.mcp = new McpClients(join(this.dir, 'mcp.json'));
@@ -183,24 +227,50 @@ export class HubApp {
           },
           summarize: this.brain ? (t) => this.brain!('Shorten this to at most 50 words in plain language. Keep every number exactly. Reply with the text only.', t).catch(() => null) : undefined,
         }),
-      onItems: (items) => this.takeItems(items),
+      onItems: (items, opts) => this.takeItems(items, opts),
     });
     this.setBrain(this.cfg.brain, this.cfg.anthropicKey);
-    if (this.cfg.telegramToken) void this.connectTelegram(this.cfg.telegramToken).catch(() => {});
+    this.telegramProbe = opts.telegramProbe ?? getBotName;
+    this.telegramSup = new TelegramSupervisor({
+      start: opts.telegramStart ?? ((token, onLost) => this.startTelegram(token, onLost)),
+      stop: async () => {
+        const link = this.telegram;
+        this.telegram = null;
+        if (link) this.senders.splice(0, this.senders.length, ...this.senders.filter((s) => s !== link));
+        await link?.stop();
+      },
+      delays: opts.telegramDelays,
+      log: (line) => console.log(line),
+    });
+    // the saved token connects on every start, in the background; failures retry and never block startup
+    if (this.cfg.telegramToken) void this.telegramSup.connect(this.cfg.telegramToken).catch(() => {});
   }
 
   // ---- config ---------------------------------------------------------
+  // Everything secret or saved (bot token, OpenWeather key, Claude/API key, paired chats) lives in secrets.json in the
+  // data folder, mode 600. It is written at once on every change, through a temp file so a crash cannot leave half of it.
   private cfgFile = () => join(this.dir, 'secrets.json');
   private readCfg(): Config {
     const base: Config = { brain: 'none', allowed: [], telegram: { chats: [] }, relayUrl: process.env.BEACON_SERVER ?? 'http://127.0.0.1:8787', allowAdultAsks: false, inboxSince: 0 };
+    const file = this.cfgFile();
+    if (!existsSync(file)) return base;
     try {
-      return { ...base, ...(JSON.parse(readFileSync(this.cfgFile(), 'utf8')) as Partial<Config>) };
+      return { ...base, ...(JSON.parse(readFileSync(file, 'utf8')) as Partial<Config>) };
     } catch {
+      // unreadable: keep the bytes aside instead of letting the next save overwrite them
+      try {
+        renameSync(file, `${file}.unreadable-${Date.now()}`);
+      } catch {
+        /* ignore */
+      }
       return base;
     }
   }
   private writeCfg() {
-    writeFileSync(this.cfgFile(), JSON.stringify(this.cfg), { mode: 0o600 });
+    const file = this.cfgFile();
+    const tmp = `${file}.tmp`;
+    writeFileSync(tmp, JSON.stringify(this.cfg), { mode: 0o600 });
+    renameSync(tmp, file);
   }
   get relayUrl() {
     return this.cfg.relayUrl;
@@ -281,16 +351,24 @@ export class HubApp {
   haiku = () => this.cfg.brain === 'api' && !!this.cfg.anthropicKey;
 
   // ---- OpenWeather -------------------------------------------------------
-  /** Save the user's OpenWeather key (secrets.json, mode 600). Quotes and spaces are removed; empty clears it. The key is never returned. */
+  /**
+   * Save the user's OpenWeather key (secrets.json, mode 600). Quotes and spaces are removed. An empty value does NOT
+   * erase a saved key (use removeOpenWeatherKey for that). The key is never returned.
+   */
   setOpenWeatherKey(input: string): { hasKey: boolean } {
     const key = cleanOwmKey(input);
-    if (key) this.cfg.openWeatherKey = key;
-    else delete this.cfg.openWeatherKey;
+    if (!key) return { hasKey: !!this.cfg.openWeatherKey };
+    this.cfg.openWeatherKey = key;
     this.writeCfg();
-    return { hasKey: !!key };
+    return { hasKey: true };
+  }
+  removeOpenWeatherKey(): { hasKey: boolean } {
+    delete this.cfg.openWeatherKey;
+    this.writeCfg();
+    return { hasKey: false };
   }
   openWeatherInfo() {
-    return { hasKey: !!this.cfg.openWeatherKey };
+    return { hasKey: !!this.cfg.openWeatherKey, hint: keyHint(this.cfg.openWeatherKey) };
   }
   /** Ask OpenWeather for the current weather in Delhi to see whether the key works. */
   async testOpenWeather(): Promise<{ ok: boolean; ms: number; error?: string }> {
@@ -385,12 +463,18 @@ export class HubApp {
     if (alerts.length) this.emit('alert');
     return alerts;
   }
-  async runOne(id: string) {
+  /**
+   * A manual Run (the Run button). Its items go to the phones and Telegram at once, and the answer says what happened.
+   * Scheduled runs (tick) do not come through here and keep the normal routes.
+   */
+  async runOne(id: string, opts: { deliverNow?: boolean } = {}) {
     const a = this.hub.agents().find((x) => x.id === id);
     if (!a) return null;
-    const signals = (await this.hub.runAgent(a)).length;
+    const deliverNow = opts.deliverNow !== false;
+    const signals = (await this.hub.runAgent(a, { deliverNow })).length;
     this.emit('run');
-    return { signals, ...this.hub.lastDetail(id) };
+    const { delivery, ...detail } = this.hub.lastDetail(id);
+    return { signals, ...detail, delivery: deliverNow ? { report: delivery ?? null, line: deliveryLine(delivery, detail.items) } : null };
   }
 
   // ---- feed and gateway -----------------------------------------------
@@ -409,9 +493,13 @@ export class HubApp {
   }
   feed = () => this.feedItems;
 
-  /** New items from agents: keep the newest 100 for the UI and pass them to the gateway for the phones. */
-  async takeItems(items: FeedItem[]): Promise<void> {
-    if (!items.length) return;
+  /**
+   * New items from agents: keep the newest 100 for the UI and pass them to the gateway for the phones.
+   * A manual run (deliverNow) sends its items at once, with the current weather merged into one plain "now" item.
+   * Returns what reached the phones and Telegram for a manual run.
+   */
+  async takeItems(items: FeedItem[], opts: { deliverNow?: boolean } = {}): Promise<DeliveryReport | undefined> {
+    if (!items.length) return undefined;
     const have = new Set(this.feedItems.map((i) => i.id));
     const fresh = items.filter((i) => !have.has(i.id));
     if (fresh.length) {
@@ -419,12 +507,14 @@ export class HubApp {
       this.saveFeed();
       this.emit('feed');
     }
-    // the gateway keeps its own seen-list, so a repeat never reaches a phone twice
+    // the gateway keeps its own seen-list, so a repeat never reaches a phone twice (a manual run is the exception)
     try {
+      if (opts.deliverNow) return (await this.gateway.dispatch(manualRunItems(items, Date.now()), { deliverNow: true })).report;
       await this.gateway.dispatch(items);
     } catch {
       /* delivery trouble is counted by the gateway; the run goes on */
     }
+    return undefined;
   }
   setRoutes(routes: GatewayRoute[]) {
     this.gateway.setRoutes(routes);
@@ -697,21 +787,67 @@ export class HubApp {
   addSender(s: Sender) {
     this.senders.splice(0, this.senders.length, ...this.senders.filter((x) => x.channel !== s.channel), s);
   }
-  async connectTelegram(token: string): Promise<string> {
-    await this.telegram?.stop();
-    this.cfg.telegramToken = token;
-    this.writeCfg();
+  /** Starts one polling link with the token. Throws if getMe fails; the supervisor decides what to do then. */
+  private async startTelegram(token: string, onLost: (err: unknown) => void): Promise<string> {
     const link = new TelegramLink(token, this.cfg.telegram, (s) => {
       this.cfg.telegram = s;
       this.writeCfg();
     });
-    const bot = await link.start(() => this.emit('run'));
+    const bot = await link.start(
+      () => this.emit('run'),
+      (err) => {
+        if (this.telegram === link) this.telegram = null;
+        onLost(err);
+      },
+    );
     this.telegram = link;
     this.addSender(link);
     return bot;
   }
+
+  /**
+   * Save a bot token entered in Connections and connect with it. The token is checked first: if Telegram refuses it,
+   * the error says so and the saved token (if any) is kept. If Telegram cannot be reached, the token is saved and the
+   * connection retries in the background. The token is never part of an error message.
+   */
+  async connectTelegram(input: string): Promise<TelegramStatus> {
+    const token = cleanTelegramToken(input);
+    if (!token) throw new Error('Paste the bot token first.');
+    if (!/^\d+:[A-Za-z0-9_-]{10,}$/.test(token)) throw new Error('That is not a bot token. It looks like 123456:ABC..., and @BotFather gives it to you.');
+    try {
+      await this.telegramProbe(token);
+    } catch (e) {
+      const f = classifyTelegramError(e);
+      if (f.kind === 'rejected') throw new Error(f.message);
+      // no answer from Telegram: keep the token and let the supervisor retry
+    }
+    this.cfg.telegramToken = token;
+    this.writeCfg();
+    return this.telegramSup.connect(token);
+  }
+  /** The Retry button: connect again with the saved token. */
+  retryTelegram(): Promise<TelegramStatus> {
+    return this.telegramSup.retryNow();
+  }
+  /** The Remove key button: stop Telegram and forget the token. Paired chats stay paired. */
+  async removeTelegramToken() {
+    await this.telegramSup.forget();
+    delete this.cfg.telegramToken;
+    this.writeCfg();
+    return this.telegramInfo();
+  }
   telegramInfo() {
-    return { connected: !!this.telegram, paired: this.cfg.telegram.chats.length, bot: '' };
+    const s = this.telegramSup.status;
+    return {
+      state: s.state,
+      connected: s.state === 'connected',
+      bot: s.state === 'connected' ? s.bot : '',
+      message: s.state === 'reconnecting' || s.state === 'rejected' || s.state === 'unreachable' ? s.message : '',
+      attempt: s.state === 'reconnecting' ? s.attempt : 0,
+      paired: this.cfg.telegram.chats.length,
+      saved: !!this.cfg.telegramToken,
+      hint: keyHint(this.cfg.telegramToken),
+    };
   }
 
   /** Where the hub stands right now: calm, watch, alert or recovering. */

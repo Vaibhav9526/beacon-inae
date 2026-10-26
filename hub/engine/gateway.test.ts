@@ -502,3 +502,73 @@ test('a digest route with continue lets an instant route below it still send', a
   assert.equal(s.received('phone-adult').length, 0);
   assert.equal(s.gw.digestStatus()[0]!.queued, 1);
 });
+
+const weatherRoute = (): GatewayRoute => ({
+  id: 'daily',
+  name: 'Daily weather',
+  enabled: true,
+  match: { kinds: ['weather'] },
+  to: { phones: 'all', telegram: true },
+  deliver: { mode: 'digest', everyMin: 60 },
+});
+
+test('manual run (deliverNow) bypasses a digest route: phones get it at once and the queue stays empty', async () => {
+  const s = setup();
+  s.gw.setRoutes([weatherRoute()]);
+  const r = await s.gw.dispatch([item('now-1', { kind: 'weather', title: 'Weather now in Raipur: 31 C' })], { deliverNow: true });
+  assert.equal(r.delivered, 1);
+  assert.equal(r.queued, undefined, 'nothing was held');
+  assert.equal(s.received('phone-adult').length, 1);
+  assert.equal(s.received('phone-elder').length, 1);
+  assert.equal(s.received('phone-kid').length, 1);
+  assert.equal(s.gw.digestStatus()[0]!.queued, 0, 'the digest queue was not used');
+  assert.equal(r.report?.phones, 3);
+  assert.equal(r.report?.phonesPaired, 3);
+  assert.equal(r.report?.telegram, 'sent');
+});
+
+test('manual run sends a calm info item to Telegram as a formatted post, below the warning threshold', async () => {
+  const s = setup();
+  const r = await s.gw.dispatch(
+    [item('calm-1', { kind: 'weather', severity: 'info', title: 'Weather now in Raipur: 31 C', detail: 'Raipur now: 31 C, feels 36 C.' })],
+    { deliverNow: true },
+  );
+  assert.equal(s.telegram.length, 1, 'Telegram got the calm item');
+  assert.match(s.telegram[0]!, /<b>Weather now in Raipur: 31 C<\/b>/);
+  assert.match(s.telegram[0]!, /Raipur now: 31 C, feels 36 C\./);
+  assert.deepEqual(s.telegramOpts[0], { html: true });
+  assert.equal(r.report?.telegram, 'sent');
+  assert.equal(r.delivered, 1);
+});
+
+test('scheduled run still queues for a digest route, and calm info does not reach Telegram', async () => {
+  const s = setup();
+  s.gw.setRoutes([weatherRoute()]);
+  const r = await s.gw.dispatch([item('sch-1', { kind: 'weather' })]);
+  assert.equal(r.queued, 1);
+  assert.equal(r.report, undefined, 'a scheduled run has no delivery report');
+  assert.equal(s.received('phone-adult').length, 0);
+  assert.equal(s.telegram.length, 0);
+  assert.equal(s.gw.digestStatus()[0]!.queued, 1);
+});
+
+test('manual run reports a Telegram refusal with its reason, and the phones still get the item', async () => {
+  const s = setup({ sendTelegram: async () => { throw new Error('Telegram is not connected'); } });
+  const r = await s.gw.dispatch([item('f-1', { kind: 'weather' })], { deliverNow: true });
+  assert.equal(r.report?.telegram, 'failed');
+  assert.equal(r.report?.telegramNote, 'Telegram is not connected');
+  assert.equal(r.report?.phones, 3);
+  assert.equal(r.delivered, 1);
+});
+
+test('an item a manual run sent is remembered: another Run or a scheduled run does not send it again', async () => {
+  const s = setup();
+  await s.gw.dispatch([item('m-1', { kind: 'weather' })], { deliverNow: true });
+  const again = await s.gw.dispatch([item('m-1', { kind: 'weather' })], { deliverNow: true });
+  assert.equal(again.skipped, 1);
+  assert.equal(again.report?.telegram, 'none');
+  const scheduled = await s.gw.dispatch([item('m-1', { kind: 'weather' })]);
+  assert.equal(scheduled.skipped, 1);
+  assert.equal(s.received('phone-adult').length, 1, 'only the first run reached the phone');
+  assert.equal(s.telegram.length, 1, 'Telegram got it once');
+});

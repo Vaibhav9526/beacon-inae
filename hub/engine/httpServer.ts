@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import type { HubApp } from './app.ts';
 import { toCap } from './cap.ts';
 import { cleanRoutes } from './gateway.ts';
+import { searchPlaces } from './geo.ts';
 
 const UI = process.env.BEACON_HUB_UI_DIR || join(dirname(fileURLToPath(import.meta.url)), '..', 'ui');
 const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 'text/javascript', '.svg': 'image/svg+xml', '.png': 'image/png' };
@@ -61,6 +62,12 @@ export function startHttp(app: HubApp, opts: { port?: number; token?: string; pa
 
       if (m === 'GET' && p === '/api/state') return send(200, app.state());
       if (m === 'GET' && p === '/api/situation') return send(200, app.situation());
+      if (m === 'GET' && p === '/api/places') {
+        // offline=1: built-in list only, answers at once. The saved OpenWeather key is read from app's private config.
+        const owmKey = (app as unknown as { cfg?: { openWeatherKey?: string } }).cfg?.openWeatherKey;
+        const offline = url.searchParams.get('offline') === '1';
+        return send(200, { places: await searchPlaces(url.searchParams.get('q') ?? '', undefined, offline, { owmKey }) });
+      }
       if (m === 'GET' && (r = p.match(/^\/api\/cap\/([\w-]+)$/))) {
         const al = app.hub.alerts().find((x) => x.id === r![1]);
         if (!al) return send(404, { error: 'no alert' });
@@ -107,7 +114,8 @@ export function startHttp(app: HubApp, opts: { port?: number; token?: string; pa
         return send(200, { enabled: !a.enabled });
       }
       if (m === 'POST' && (r = p.match(/^\/api\/agents\/([\w-]+)\/run$/))) {
-        const out = await app.runOne(r[1]);
+        // a manual run sends its items at once; {"deliverNow": false} runs without sending
+        const out = await app.runOne(r[1], { deliverNow: (await body(req)).deliverNow !== false });
         return out ? send(200, out) : send(404, { error: 'no agent' });
       }
       if (m === 'POST' && (r = p.match(/^\/api\/agents\/([\w-]+)\/rules$/))) {
@@ -130,11 +138,14 @@ export function startHttp(app: HubApp, opts: { port?: number; token?: string; pa
         return app.addReading(b as never), send(200, { ok: true });
       }
       if (m === 'POST' && p === '/api/telegram/token') {
-        const bot = await app.connectTelegram(String((await body(req)).token ?? '').trim());
-        return send(200, { bot });
+        // an empty token is refused (never erases the saved one); a refused token is an error, a slow network is not
+        const status = await app.connectTelegram(String((await body(req)).token ?? ''));
+        return send(200, { bot: status.state === 'connected' ? status.bot : '', telegram: app.telegramInfo() });
       }
+      if (m === 'DELETE' && p === '/api/telegram/token') return send(200, { telegram: await app.removeTelegramToken() });
+      if (m === 'POST' && p === '/api/telegram/retry') return send(200, { telegram: await app.retryTelegram().then(() => app.telegramInfo()) });
       if (m === 'POST' && p === '/api/telegram/pair') {
-        if (!app.telegram) return send(409, { error: 'Add the bot token first' });
+        if (!app.telegram) return send(409, { error: 'Telegram is not connected yet. Check the bot token, or press Retry now.' });
         return send(200, { code: app.telegram.newPairingCode(), bot: '' });
       }
       if (m === 'POST' && p === '/api/beacon/pair') {
@@ -195,7 +206,9 @@ export function startHttp(app: HubApp, opts: { port?: number; token?: string; pa
             return send(400, { error: (e as Error).message });
           }
         }
+        // an empty openWeatherKey keeps the saved key; removal is explicit
         if (b.openWeatherKey !== undefined) app.setOpenWeatherKey(String(b.openWeatherKey));
+        if (b.removeOpenWeatherKey === true) app.removeOpenWeatherKey();
         return send(200, { allowAdultAsks: app.state().group.allowAdultAsks, relayUrl: app.relayUrl, openWeather: app.openWeatherInfo() });
       }
       if (m === 'POST' && p === '/api/owm/test') return send(200, await app.testOpenWeather());

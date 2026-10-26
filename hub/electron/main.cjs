@@ -4,6 +4,7 @@ const { app, BrowserWindow, Tray, Menu, nativeImage, nativeTheme, shell, dialog,
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 
 const HUB_DIR = path.join(__dirname, '..');
 const ICON = app.isPackaged ? path.join(process.resourcesPath, 'dist', 'ui', 'logo.png') : path.join(HUB_DIR, 'ui', 'logo.png');
@@ -22,6 +23,41 @@ if (!app.requestSingleInstanceLock()) {
 
 app.on('second-instance', () => showWindow());
 
+/**
+ * The data folder (keys, settings, members, health data). ONE folder for `npm run desktop` and the installed app:
+ *   Windows: %APPDATA%\Beacon Hub\hub-data   (macOS/Linux: the equivalent under the app-data folder)
+ * It is never inside the install folder, so updates and reinstalls leave it alone.
+ */
+function sharedDataDir() {
+  return path.join(app.getPath('appData'), 'Beacon Hub', 'hub-data');
+}
+
+/**
+ * One-time migration. Before this build, `npm run desktop` kept its data in ~/.beacon-hub (the engine default).
+ * If the shared folder has no secrets.json yet, the saved keys and settings are copied from there (or from the other
+ * old dev folder). A marker file makes this run only once, so a key removed later is not brought back.
+ */
+function migrateLegacyData(target) {
+  fs.mkdirSync(target, { recursive: true });
+  const marker = path.join(target, 'legacy-migrated.json');
+  if (fs.existsSync(marker) || fs.existsSync(path.join(target, 'secrets.json'))) return;
+  const sources = [path.join(os.homedir(), '.beacon-hub'), path.join(app.getPath('appData'), 'beacon-hub', 'hub-data')];
+  let from = null;
+  for (const dir of sources) {
+    const file = path.join(dir, 'secrets.json');
+    if (!fs.existsSync(file)) continue;
+    try {
+      fs.copyFileSync(file, path.join(target, 'secrets.json'), fs.constants.COPYFILE_EXCL);
+      from = dir;
+      break;
+    } catch (e) {
+      logUpdate(`migration copy failed from ${dir}: ${e.message}`);
+    }
+  }
+  fs.writeFileSync(marker, JSON.stringify({ from, at: new Date().toISOString() }, null, 2), { mode: 0o600 });
+  if (from) logUpdate(`settings migrated from ${from}`);
+}
+
 function startEngine() {
   return new Promise((resolve, reject) => {
     // ELECTRON_RUN_AS_NODE makes the Electron binary behave as plain Node, so no system Node is needed.
@@ -29,12 +65,16 @@ function startEngine() {
     let args;
     let cwd;
     const env = { ...process.env, PORT: '0', ELECTRON_RUN_AS_NODE: '1' };
+    env.BEACON_HUB_DIR = sharedDataDir();
+    try {
+      migrateLegacyData(env.BEACON_HUB_DIR);
+    } catch (e) {
+      logUpdate(`migration skipped: ${e.message}`);
+    }
     if (app.isPackaged) {
       args = [path.join(process.resourcesPath, 'dist', 'engine.mjs')];
       cwd = path.join(process.resourcesPath, 'dist');
       env.BEACON_HUB_UI_DIR = path.join(process.resourcesPath, 'dist', 'ui');
-      env.BEACON_HUB_DIR = path.join(app.getPath('userData'), 'hub-data');
-      fs.mkdirSync(env.BEACON_HUB_DIR, { recursive: true });
     } else {
       args = ['--import', 'tsx', 'engine/main.ts'];
       cwd = HUB_DIR;

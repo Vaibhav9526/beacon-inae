@@ -4,20 +4,19 @@ import { View } from 'react-native';
 import { Flower } from '../../components/Deco';
 import { Icon, type IconName } from '../../components/Icon';
 import { Screen } from '../../components/Screen';
-import { Appear, Card, IconTile, Press, Row, type TintName, Txt, useTheme } from '../../components/ui';
-import { useLocal, useT } from '../../i18n';
+import { Appear, Card, Press, Row, type TintName, Txt, useTheme } from '../../components/ui';
+import { type StringKey, useT } from '../../i18n';
 import { useSettings } from '../../state/settings';
 import { Stars } from '../../components/Stars';
 
-const GAMES: { id: string; icon: IconName; tint: TintName; title: readonly [string, string]; sub: readonly [string, string] }[] = [
-  { id: 'bag', icon: 'learn', tint: 'green', title: ['Pack the go-bag', 'गो-बैग भरो'], sub: ['Pack only what you need', 'सिर्फ़ ज़रूरी चीज़ें रखो'] },
-  { id: 'safe', icon: 'shield', tint: 'lilac', title: ['Safe or not?', 'सुरक्षित या नहीं?'], sub: ['Judge 8 situations', '8 स्थितियाँ परखो'] },
-  { id: 'dch', icon: 'mountain', tint: 'peach', title: ['Drop, cover, hold', 'झुको, ढको, पकड़ो'], sub: ['Tap in the right order, fast', 'सही क्रम में जल्दी टैप करो'] },
+const GAMES: { id: string; icon: IconName; tint: TintName; title: StringKey; sub: StringKey }[] = [
+  { id: 'bag', icon: 'learn', tint: 'green', title: 'gameBagTitle', sub: 'gameBagSub' },
+  { id: 'safe', icon: 'shield', tint: 'lilac', title: 'gameSafeTitle', sub: 'gameSafeSub' },
+  { id: 'dch', icon: 'mountain', tint: 'peach', title: 'gameDchTitle', sub: 'gameDchSub' },
 ];
 
 export default function Play() {
   const t = useT();
-  const L = useLocal();
   const { p } = useTheme();
   const stars = useSettings((s) => s.stars);
   return (
@@ -39,7 +38,7 @@ export default function Play() {
       </Appear>
       {GAMES.map((g, i) => (
         <Appear key={g.id} index={i + 1}>
-          <Press accessibilityRole="button" onPress={() => router.push(`/kid/game/${g.id}` as never)}>
+          <Press accessibilityRole="button" accessibilityLabel={t(g.title)} onPress={() => router.push(`/game/${g.id}` as never)}>
             <Card tint={g.tint} style={{ padding: 16 }}>
               <Row style={{ gap: 14 }}>
                 <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: p.tint[g.tint].ink, alignItems: 'center', justifyContent: 'center' }}>
@@ -47,10 +46,10 @@ export default function Play() {
                 </View>
                 <View style={{ flex: 1, gap: 3 }}>
                   <Txt size={16} weight="700" color={p.tint[g.tint].ink}>
-                    {L(g.title)}
+                    {t(g.title)}
                   </Txt>
                   <Txt size={12.5} color={p.tint[g.tint].ink}>
-                    {L(g.sub)}
+                    {t(g.sub)}
                   </Txt>
                   <Stars n={stars['game-' + g.id] ?? 0} />
                 </View>

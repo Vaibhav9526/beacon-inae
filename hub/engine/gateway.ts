@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { buildDigest, formatItemPost } from './digest.ts';
+import { buildDigest, formatItemPost, packPosts } from './digest.ts';
 import { chunkFeed } from './wire.ts';
 import type { Members } from './members.ts';
 import { SEVERITY_RANK, type FeedItem, type FeedKind, type GatewayRoute, type Member, type MemberRole, type Severity } from './types.ts';
@@ -108,6 +108,19 @@ export interface DispatchResult {
   byRoute: Record<string, number>;
   /** items held for a digest route's next update (not sent yet, not counted in skipped) */
   queued?: number;
+  /** set for a manual run (deliverNow): what reached the phones and Telegram */
+  report?: DeliveryReport;
+}
+
+export interface DeliveryReport {
+  /** paired phones that took the items */
+  phones: number;
+  /** paired phones the items were meant for */
+  phonesPaired: number;
+  /** 'none' when every item was already sent before; 'off' when no Telegram sender is wired at all */
+  telegram: 'sent' | 'failed' | 'off' | 'none';
+  /** why Telegram did not get the items, when it did not */
+  telegramNote?: string;
 }
 
 export interface DigestStatus {
@@ -221,8 +234,10 @@ export class Gateway {
   /**
    * Route the items, drop the ones seen before, and send each phone its items as encrypted blobs. Items at or above
    * the route's notifyFrom get the 'notify' tag so the phone raises a notification. Delivery errors are counted, not thrown.
+   * `deliverNow` (a manual Run) takes the other path: see deliverNow().
    */
-  async dispatch(items: FeedItem[]): Promise<DispatchResult> {
+  async dispatch(items: FeedItem[], opts: { deliverNow?: boolean } = {}): Promise<DispatchResult> {
+    if (opts.deliverNow) return this.deliverNow(items);
     const result: DispatchResult = { delivered: 0, skipped: 0, byRoute: {} };
     const seen = new Set(this.state.seen);
     const fresh: FeedItem[] = [];
@@ -303,6 +318,58 @@ export class Gateway {
     }
     this.save();
     return result;
+  }
+
+  /**
+   * A manual Run: the new items go out now to every paired phone and to Telegram. Digest queues, route rules and the
+   * 'warning or above' Telegram threshold are bypassed. Dedupe still applies (an item already sent is not sent again),
+   * and each run's current-weather item is new by its id, so a Run always shows the current numbers. Telegram still
+   * goes through the outbox (first-send approval and audit log).
+   */
+  private async deliverNow(items: FeedItem[]): Promise<DispatchResult> {
+    const now = this.now();
+    const members = this.opts.members.list().filter((m) => !!m.deviceId);
+    const seen = new Set(this.state.seen);
+    const fresh = items.filter((i) => !seen.has(i.id));
+    this.state.seen = [...this.state.seen, ...fresh.map((i) => i.id)].slice(-SEEN_MAX);
+    const batch = fresh.map((item) => {
+      const notify = SEVERITY_RANK[item.severity] >= SEVERITY_RANK.warning;
+      return { ...item, tags: notify && !item.tags.includes('notify') ? [...item.tags, 'notify'] : item.tags };
+    });
+
+    let phones = 0;
+    if (batch.length) {
+      for (const m of members) {
+        try {
+          await this.opts.sendToPhone(m.deviceId!, chunkFeed(batch, this.opts.groupKey()));
+          phones++;
+        } catch {
+          // one phone failing does not stop the others
+        }
+      }
+    }
+
+    let telegram: DeliveryReport['telegram'] = batch.length ? 'off' : 'none';
+    let telegramNote: string | undefined;
+    if (this.opts.sendTelegram && batch.length) {
+      telegram = 'sent';
+      try {
+        for (const post of packPosts(batch.map((i) => formatItemPost(i, { now })))) await this.opts.sendTelegram(post, { html: true });
+      } catch (e) {
+        telegram = 'failed';
+        telegramNote = e instanceof Error ? e.message : String(e);
+      }
+    }
+    this.save();
+
+    // duplicates and items whose every delivery failed are skipped, as in a scheduled run
+    const delivered = phones > 0 || telegram === 'sent' ? batch.length : 0;
+    return {
+      delivered,
+      skipped: items.length - delivered,
+      byRoute: {},
+      report: { phones, phonesPaired: members.length, telegram, telegramNote },
+    };
   }
 
   private now(): number {

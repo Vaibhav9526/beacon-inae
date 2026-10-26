@@ -97,7 +97,12 @@ for (const e of ENTRIES) {
  */
 export function parseNavigation(text: string): NavigationTarget | null {
   if (typeof text !== 'string' || !text.trim()) return null;
-  const hit = INDEX.get(core(text));
+  let hit = INDEX.get(core(text));
+  // "first aid for burns" / "first aid on snake bite": the topic after the prefix is the guide
+  if (!hit) {
+    const topic = normaliseSpeech(text).replace(/^(first aid|प्राथमिक उपचार)\s+(for|on|of|about|के लिए|पर)?\s*/u, '');
+    if (topic && topic !== normaliseSpeech(text)) hit = INDEX.get(core(topic));
+  }
   return hit ? { route: hit.route, label: hit.label } : null;
 }
 
@@ -124,6 +129,44 @@ export type Decision =
   | { kind: 'chip' };
 
 const L = (lang: Lang, en: string, hi: string) => (lang === 'hi' ? hi : en);
+
+/** Three commands the app always offers when it does not understand (shown on screen and read aloud). */
+export const EXAMPLE_COMMANDS = ['open weather', 'first aid for burns', 'call 112'] as const;
+
+/** Every line the voice mic says or shows. Each one is spoken and written, so the user always gets feedback. */
+export const VOICE_TEXT = {
+  listening: (l: Lang) => L(l, 'Listening... keep holding and speak', 'सुन रहा हूँ... बटन दबाए रखें और बोलें'),
+  holdToTalk: (l: Lang) => L(l, 'Hold to talk', 'बोलने के लिए दबाए रखें'),
+  working: (l: Lang) => L(l, 'Working on it...', 'काम हो रहा है...'),
+  cancelled: (l: Lang) => L(l, 'Cancelled', 'रद्द किया'),
+  notHeard: (l: Lang) => L(l, 'I did not catch that, try again', 'मुझे समझ नहीं आया, दोबारा कोशिश करें'),
+  /** The card for speech we could not map to an action: what was heard, then the three examples. */
+  heardUnknown: (text: string, l: Lang) =>
+    L(
+      l,
+      `I heard: "${text}". Try: ${EXAMPLE_COMMANDS.map((c) => `"${c}"`).join(', ')}`,
+      `मैंने सुना: "${text}"। ऐसे कहें: ${EXAMPLE_COMMANDS.map((c) => `"${c}"`).join(', ')}`,
+    ),
+  tooShort: (l: Lang) => L(l, 'Hold the button a little longer and speak', 'बटन दबाए रखें और थोड़ा और बोलें'),
+  micOff: (l: Lang) =>
+    L(l, 'Microphone is off. Allow Beacon to use the microphone in the phone settings', 'माइक्रोफ़ोन बंद है। फ़ोन की सेटिंग में Beacon को माइक्रोफ़ोन की अनुमति दें'),
+  noRecogniser: (l: Lang) =>
+    L(l, 'Voice input is not available on this phone. Install or update the Google speech service, or type the command', 'इस फ़ोन पर आवाज़ से आदेश उपलब्ध नहीं है। Google speech सेवा लगाएँ, या आदेश लिखें'),
+  recogniserError: (l: Lang) => L(l, 'The speech recogniser stopped. Try again, or type the command', 'आवाज़ पहचानने वाला रुक गया। दोबारा कोशिश करें या आदेश लिखें'),
+  unknown: (l: Lang) =>
+    L(
+      l,
+      `I did not understand. Try: ${EXAMPLE_COMMANDS.map((c) => `"${c}"`).join(', ')}`,
+      `मैं समझ नहीं पाया। ऐसे कहें: ${EXAMPLE_COMMANDS.map((c) => `"${c}"`).join(', ')}`,
+    ),
+  error: (l: Lang) => L(l, 'Something went wrong. Please try again', 'कुछ गड़बड़ हो गई। दोबारा कोशिश करें'),
+  heard: (text: string, l: Lang) => L(l, `Heard: "${text}"`, `सुना: "${text}"`),
+  typeHint: (l: Lang) => L(l, 'Type a command', 'आदेश लिखें'),
+  typeInstead: (l: Lang) => L(l, 'Type instead', 'लिखकर बताएँ'),
+  askDidi: (l: Lang) => L(l, 'Ask Didi', 'दीदी से पूछें'),
+  openSettings: (l: Lang) => L(l, 'Open settings', 'सेटिंग खोलें'),
+  done: (l: Lang) => L(l, 'Done', 'हो गया'),
+};
 
 const PLACE_NAMES: Record<string, [string, string]> = {
   shelter: ['shelter', 'आश्रय'],

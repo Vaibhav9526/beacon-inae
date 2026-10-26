@@ -372,6 +372,7 @@ export function currentDrafts(c: Current, part: OwmPart, place?: string): OwmDra
   const data: Record<string, number | string> = {};
   put(data, 'temp_c', c.tempC); put(data, 'feels_like_c', c.feelsC); put(data, 'humidity_pct', c.humidity);
   put(data, 'pressure_hpa', c.pressure); put(data, 'wind_kmh', c.windKmh); put(data, 'wind_gust_kmh', c.gustKmh);
+  put(data, 'wind_dir_deg', c.windDeg);
   put(data, 'clouds_pct', c.clouds); put(data, 'visibility_km', c.visibilityKm);
   data.rain_mm_1h = c.rain1h; data.snow_mm_1h = c.snow1h;
   const base = { at, tags: ['owm', 'current'], };

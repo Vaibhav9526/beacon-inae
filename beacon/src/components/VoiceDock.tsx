@@ -2,33 +2,44 @@
  * Voice commands shared by the bottom-bar mic (VoiceFab). The old floating dock is retired: its default export
  * renders nothing. The hooks and the toast live here so VoiceFab can use them.
  *
+ * Every press ends with feedback within about 2 seconds: a visible state (listening / heard "<text>" / working),
+ * then a spoken and written reply. Nothing is silent. See VOICE_TEXT in src/ai/navigate.ts for the wording.
+ *
  * Order for every recognised sentence (see interpret() in src/ai/navigate.ts):
- * emergency words -> exact phrases -> on-device model (4 s) -> keyword guesses -> "Ask Didi instead?".
+ * emergency words -> exact phrases -> keyword router -> on-device model (4 s) -> guesses -> "I did not understand".
  */
 import { router } from 'expo-router';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Linking, StyleSheet, TextInput, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 import { runAction } from '../ai/actions';
-import { type Choice, interpret } from '../ai/navigate';
+import { type Choice, type Decision, interpret, VOICE_TEXT } from '../ai/navigate';
 import { startNeedle } from '../ai/needle';
 import { speak } from '../services/speech';
 import { voiceEngine } from '../services/voiceCommands';
 import { useSettings } from '../state/settings';
+import { subscribeVoiceNotice, type VoiceNotice } from './MicButton';
 import { Press, Txt } from './ui';
 
 const PERSONA_CHAT = '/kid/didi';
 const HOLD_MS = 1400;
 const UNDO_MS = 4000;
-const DIDI_HOLD_MS = 4000;
+const LISTEN_MS = 12000;
 const CONFIRM_MS = 15000;
+
+export interface ToastButton {
+  label: string;
+  onPress: () => void;
+}
 
 export interface Toast {
   text: string;
-  /** Tapping the toast opens the persona chat. Used for the "Ask Didi instead?" chip. */
-  toPersona?: boolean;
+  /** Buttons under the text: Open settings, Type instead, Ask Didi. */
+  buttons?: ToastButton[];
   /** Shows an Undo button (goes back one screen). */
   undo?: boolean;
+  /** Typed-command box. `onSubmit` gets the sentence the user typed. */
+  typing?: { onSubmit: (text: string) => void };
   /** "Did you mean: X?" card with big Yes / No buttons and up to two other guesses. */
   confirm?: { primary: Choice; alternatives: Choice[]; yesLabel: string; noLabel: string; onChoose: (c: Choice) => void; onDismiss: () => void };
   /** Closes the toast (Undo uses it). */
@@ -37,22 +48,52 @@ export interface Toast {
 
 /**
  * Runs a recognised phrase and returns `onText` to feed recognised text, and the current `toast`.
- * Screens open at once with an Undo; anything that sends or calls, or is a guess, asks first.
+ * Every outcome is spoken and written. Screens open at once with an Undo; anything that sends or calls, or is a
+ * guess, asks first.
  */
 export function useVoiceCommands() {
   const [toast, setToast] = useState<Toast | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const show = useCallback((t: Toast, holdMs: number) => {
+  // holdMs 0 keeps the toast until the user closes it (typed box)
+  const show = (t: Toast, holdMs: number) => {
     if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
     setToast(t);
-    timer.current = setTimeout(() => setToast(null), holdMs + 320);
-  }, []);
+    if (holdMs > 0) timer.current = setTimeout(() => setToast(null), holdMs + 320);
+  };
 
-  const hide = useCallback(() => {
+  const hide = () => {
     if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
     setToast(null);
-  }, []);
+  };
+
+  const lang = () => useSettings.getState().lang;
+
+  /** Written and spoken at once. */
+  const reply = (text: string, extra: Partial<Toast> = {}, holdMs = HOLD_MS) => {
+    void speak(text, lang(), 'veer');
+    show({ text, ...extra }, holdMs);
+  };
+
+  const typeButton = (): ToastButton => ({ label: VOICE_TEXT.typeInstead(lang()), onPress: () => openTyping() });
+
+  const openTyping = () => {
+    show(
+      {
+        text: VOICE_TEXT.typeHint(lang()),
+        typing: {
+          onSubmit: (t) => {
+            hide();
+            void onText(t);
+          },
+        },
+        onDismiss: hide,
+      },
+      0,
+    );
+  };
 
   useEffect(() => {
     // load the on-device model in the background so the first spoken command is not waiting for it
@@ -62,41 +103,62 @@ export function useVoiceCommands() {
     };
   }, []);
 
+  // notices from the mic (listening, mic off, no recogniser, nothing heard)
+  const handleNotice = useRef<(n: VoiceNotice) => void>(() => {});
+  handleNotice.current = (n: VoiceNotice) => {
+    if (n.kind === 'listening') {
+      show({ text: n.text }, LISTEN_MS);
+    } else if (n.kind === 'mic') {
+      reply(n.text, { buttons: [{ label: VOICE_TEXT.openSettings(lang()), onPress: () => void Linking.openSettings().catch(() => {}) }, typeButton()] }, CONFIRM_MS);
+    } else {
+      reply(n.text, { buttons: [typeButton()] }, CONFIRM_MS);
+    }
+  };
+  useEffect(() => subscribeVoiceNotice((n) => handleNotice.current(n)), []);
+
   /** Yes on the card (or one of the alternatives): this is the explicit tap that sending or calling needs. */
-  const choose = useCallback(
-    async (c: Choice) => {
-      hide();
-      const lang = useSettings.getState().lang;
+  const choose = async (c: Choice) => {
+    hide();
+    const l = lang();
+    try {
       await runAction(c.action);
-      if (c.action.type === 'sos' || c.action.type === 'safe' || c.action.type === 'call112') {
-        show({ text: lang === 'hi' ? 'हो गया' : 'Done' }, HOLD_MS);
-      }
-    },
-    [hide, show],
-  );
+    } catch {
+      reply(VOICE_TEXT.error(l), { buttons: [typeButton()] }, CONFIRM_MS);
+      return;
+    }
+    if (c.action.type === 'sos' || c.action.type === 'safe' || c.action.type === 'call112') reply(VOICE_TEXT.done(l));
+  };
 
-  const onText = useCallback(
-    async (text: string) => {
-      const lang = useSettings.getState().lang;
-      let d;
-      try {
-        d = await interpret(text, voiceEngine(), { lang });
-      } catch {
-        d = { kind: 'chip' } as const;
-      }
+  /** Recognised (or typed) text -> the action it means. Always ends in a spoken and written reply. */
+  const onText = async (raw: string) => {
+    const l = lang();
+    const text = (raw ?? '').trim();
+    if (!text) return reply(VOICE_TEXT.notHeard(l), { buttons: [typeButton()] }, CONFIRM_MS);
+    show({ text: VOICE_TEXT.heard(text, l) }, LISTEN_MS);
 
+    let d: Decision;
+    console.log('[voice] heard', JSON.stringify(text));
+    try {
+      d = await interpret(text, voiceEngine(), { lang: l });
+    } catch (e) {
+      console.log('[voice] interpret failed', String(e));
+      return reply(VOICE_TEXT.error(l), { buttons: [typeButton()] }, CONFIRM_MS);
+    }
+    console.log('[voice] decision', d.kind, d.kind === 'run' ? d.route ?? d.action?.type : '');
+
+    try {
       if (d.kind === 'emergency') {
         // guide first, then the 112 prompt
         router.navigate(`/guide/${d.guideId}` as never);
-        void speak(d.say, lang, 'veer');
+        void speak(d.say, l, 'veer');
         show(
           {
             text: d.callQuestion,
             confirm: {
               primary: { action: { type: 'call112' }, label: d.callQuestion },
               alternatives: [],
-              yesLabel: lang === 'hi' ? '112 कॉल करें' : 'Call 112',
-              noLabel: lang === 'hi' ? 'अभी नहीं' : 'Not now',
+              yesLabel: l === 'hi' ? '112 कॉल करें' : 'Call 112',
+              noLabel: l === 'hi' ? 'अभी नहीं' : 'Not now',
               onChoose: choose,
               onDismiss: hide,
             },
@@ -109,27 +171,38 @@ export function useVoiceCommands() {
       if (d.kind === 'run') {
         if (d.route) router.navigate(d.route as never);
         else if (d.action) await runAction(d.action);
-        void speak(d.label, lang, 'veer');
-        show({ text: d.label, undo: d.undo, onDismiss: hide }, d.undo ? UNDO_MS : HOLD_MS);
+        reply(d.label, { undo: d.undo, onDismiss: hide }, d.undo ? UNDO_MS : HOLD_MS);
         return;
       }
 
       if (d.kind === 'confirm') {
-        void speak(d.question, lang, 'veer');
+        void speak(d.question, l, 'veer');
         show(
           {
             text: d.question,
-            confirm: { primary: d.primary, alternatives: d.alternatives, yesLabel: lang === 'hi' ? 'हाँ' : 'Yes', noLabel: lang === 'hi' ? 'नहीं' : 'No', onChoose: choose, onDismiss: hide },
+            confirm: { primary: d.primary, alternatives: d.alternatives, yesLabel: l === 'hi' ? 'हाँ' : 'Yes', noLabel: l === 'hi' ? 'नहीं' : 'No', onChoose: choose, onDismiss: hide },
           },
           CONFIRM_MS,
         );
         return;
       }
 
-      show({ text: lang === 'hi' ? 'दीदी से पूछें?' : 'Ask Didi instead?', toPersona: true }, DIDI_HOLD_MS);
-    },
-    [show, choose, hide],
-  );
+      // nothing understood: say what was heard and the three examples, and offer typing or Didi
+      reply(
+        VOICE_TEXT.heardUnknown(text, l),
+        {
+          buttons: [
+            typeButton(),
+            { label: VOICE_TEXT.askDidi(l), onPress: () => router.navigate(PERSONA_CHAT as never) },
+          ],
+        },
+        CONFIRM_MS,
+      );
+    } catch (e) {
+      console.log('[voice] reply failed', String(e));
+      reply(VOICE_TEXT.error(l), { buttons: [typeButton()] }, CONFIRM_MS);
+    }
+  };
 
   return { onText, toast, choose, dismiss: hide };
 }
@@ -141,6 +214,49 @@ function undo() {
   } catch {
     /* nothing to go back to */
   }
+}
+
+/** The typed-command box: same result as speaking the command. */
+function TypeBox({ label, onSubmit, onClose }: { label: string; onSubmit: (text: string) => void; onClose?: () => void }) {
+  const [value, setValue] = useState('');
+  const send = () => {
+    const t = value.trim();
+    if (t) onSubmit(t);
+  };
+  return (
+    <View style={styles.card}>
+      <Txt size={15} weight="700" color="#fff" style={{ textAlign: 'center' }}>
+        {label}
+      </Txt>
+      <TextInput
+        value={value}
+        onChangeText={setValue}
+        onSubmitEditing={send}
+        autoFocus
+        autoCapitalize="none"
+        autoCorrect={false}
+        returnKeyType="send"
+        placeholder="open weather"
+        placeholderTextColor="#8A8A93"
+        accessibilityLabel="Type a voice command"
+        style={styles.input}
+      />
+      <View style={styles.row}>
+        <Press accessibilityRole="button" accessibilityLabel="Send command" onPress={send} style={[styles.big, styles.yes]}>
+          <Txt size={17} weight="800" color="#0A0A0C">
+            Send
+          </Txt>
+        </Press>
+        {onClose ? (
+          <Press accessibilityRole="button" accessibilityLabel="Close" onPress={onClose} style={[styles.big, styles.no]}>
+            <Txt size={17} weight="700" color="#fff">
+              Close
+            </Txt>
+          </Press>
+        ) : null}
+      </View>
+    </View>
+  );
 }
 
 /**
@@ -179,21 +295,39 @@ export function VoiceToast({ toast }: { toast: Toast | null }) {
       </Animated.View>
     );
   }
-  const label = (
-    <Txt size={13} weight="600" color="#fff">
-      {toast.text}
-    </Txt>
-  );
-  const interactive = toast.toPersona || toast.undo;
+  if (toast.typing) {
+    return (
+      <Animated.View key="typing" entering={FadeIn.duration(120)} exiting={FadeOut.duration(300)} pointerEvents="auto" style={styles.toastWrap}>
+        <TypeBox label={toast.text} onSubmit={toast.typing.onSubmit} onClose={toast.onDismiss} />
+      </Animated.View>
+    );
+  }
+  const buttons = toast.buttons ?? [];
   return (
-    <Animated.View key={toast.text + String(toast.toPersona)} entering={FadeIn.duration(120)} exiting={FadeOut.duration(300)} pointerEvents={interactive ? 'auto' : 'none'} style={styles.toastWrap}>
-      {toast.toPersona ? (
-        <Press accessibilityRole="button" accessibilityLabel="Ask Didi instead" onPress={() => router.navigate(PERSONA_CHAT as never)} style={styles.toast}>
-          {label}
-        </Press>
-      ) : toast.undo ? (
-        <View style={[styles.toast, styles.toastRow]}>
-          {label}
+    <Animated.View
+      key={toast.text}
+      entering={FadeIn.duration(120)}
+      exiting={FadeOut.duration(300)}
+      pointerEvents={buttons.length || toast.undo ? 'auto' : 'none'}
+      style={styles.toastWrap}>
+      <View style={[styles.toast, toast.undo ? styles.toastRow : null]}>
+        <View style={styles.toastText}>
+          <Txt size={13} weight="600" color="#fff">
+            {toast.text}
+          </Txt>
+          {buttons.length ? (
+            <View style={styles.btnRow}>
+              {buttons.map((b, i) => (
+                <Press key={i} accessibilityRole="button" accessibilityLabel={b.label} onPress={b.onPress} style={styles.btn}>
+                  <Txt size={13} weight="800" color="#FFC928">
+                    {b.label}
+                  </Txt>
+                </Press>
+              ))}
+            </View>
+          ) : null}
+        </View>
+        {toast.undo ? (
           <Press
             accessibilityRole="button"
             accessibilityLabel="Undo"
@@ -206,10 +340,8 @@ export function VoiceToast({ toast }: { toast: Toast | null }) {
               Undo
             </Txt>
           </Press>
-        </View>
-      ) : (
-        <View style={styles.toast}>{label}</View>
-      )}
+        ) : null}
+      </View>
     </Animated.View>
   );
 }
@@ -234,9 +366,12 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    maxWidth: 280,
+    maxWidth: 300,
   },
+  toastText: { flexShrink: 1, gap: 8 },
   toastRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  btnRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  btn: { minHeight: 36, paddingHorizontal: 10, borderRadius: 10, borderWidth: 1, borderColor: '#3A3A42', justifyContent: 'center' },
   undo: { paddingHorizontal: 8, paddingVertical: 6, minHeight: 32, justifyContent: 'center' },
   card: {
     backgroundColor: '#17171B',
@@ -245,6 +380,16 @@ const styles = StyleSheet.create({
     gap: 12,
     width: 300,
     maxWidth: '92%',
+  },
+  input: {
+    minHeight: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#3A3A42',
+    color: '#fff',
+    paddingHorizontal: 12,
+    fontSize: 16,
+    backgroundColor: '#0E0E12',
   },
   row: { flexDirection: 'row', gap: 10 },
   big: { flex: 1, minHeight: 56, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },

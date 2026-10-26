@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { runAction } from '../ai/actions';
-import { interpret } from '../ai/navigate';
+import { interpret, VOICE_TEXT } from '../ai/navigate';
 import { needleEngine, needleSupported } from '../ai/needle';
 import type { NeedleEngine } from '../ai/router';
 import type { Action } from '../ai/tools';
@@ -8,7 +8,8 @@ import type { Lang } from '../kb/types';
 import { useSettings } from '../state/settings';
 import { speak } from './speech';
 
-const none = (l: Lang) => (l === 'hi' ? 'मैं समझ नहीं पाया। दोबारा कहें।' : 'I did not understand. Please say it again.');
+/** What the app says when it does not understand: the three example commands, never silence. */
+const none = (l: Lang) => VOICE_TEXT.unknown(l);
 
 /** The on-device model when this build has it, otherwise null (keywords only). */
 export const voiceEngine = (): NeedleEngine | null => (needleSupported ? needleEngine : null);
@@ -26,7 +27,12 @@ export interface VoiceOutcome {
  */
 export async function handleVoiceCommand(text: string): Promise<VoiceOutcome> {
   const lang = useSettings.getState().lang;
-  const d = await interpret(text, voiceEngine(), { lang });
+  let d: Awaited<ReturnType<typeof interpret>>;
+  try {
+    d = await interpret(text, voiceEngine(), { lang });
+  } catch {
+    d = { kind: 'chip' };
+  }
   switch (d.kind) {
     case 'emergency': {
       void speak(d.say, lang, 'veer');

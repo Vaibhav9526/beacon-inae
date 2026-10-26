@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import native from '../../modules/beacon-ai';
 import type { Lang } from '../kb/types';
 import { useSettings } from '../state/settings';
+import { transcriptOnRelease, RELEASE_GRACE_MS } from './voiceHold';
 
 /** Phrases the recogniser may produce for "Hey Beacon" in English and Hindi (it is a made-up word, so it is spelled many ways). */
 const WAKE = [
@@ -47,38 +48,123 @@ interface VoiceState {
 }
 export const useVoice = create<VoiceState>(() => ({ listening: false, partial: '', wake: false, error: null }));
 
-/** Listen once and resolve with what was said (or null on silence, error or no support). */
-export async function listenOnce(lang: Lang, timeoutMs = 9000): Promise<string | null> {
-  if (!native || !(await ensureMic())) return null;
-  await stopVoice();
-  return new Promise<string | null>((resolve) => {
-    let done = false;
-    const subs: { remove(): void }[] = [];
-    const finish = (v: string | null) => {
-      if (done) return;
-      done = true;
-      subs.forEach((s) => s.remove());
-      clearTimeout(timer);
-      void native!.voiceStop().catch(() => {});
-      useVoice.setState({ listening: false, partial: '' });
-      resolve(v);
-    };
-    const timer = setTimeout(() => finish(null), timeoutMs);
-    subs.push(
-      native!.addListener('onVoiceResult', (e) => {
-        useVoice.setState({ partial: e.text });
-        if (e.final) finish(e.text);
-      }),
-      native!.addListener('onVoiceState', (e) => {
-        if (e.state === 'listening') useVoice.setState({ listening: true, error: null });
-        if (e.state === 'error') {
-          useVoice.setState({ error: e.message ?? 'error' });
-          finish(null);
-        }
-      }),
-    );
-    void native!.voiceStart(code(lang), false).catch(() => finish(null));
+/** Why a single listen ended. 'ok' means text was heard. 'cancelled' means the user let go or slid away on purpose. */
+export type ListenReason = 'ok' | 'no-match' | 'denied' | 'unavailable' | 'error' | 'silence' | 'cancelled';
+
+export interface ListenResult {
+  text: string | null;
+  reason: ListenReason;
+}
+
+/**
+ * Only a stop that follows a `listening` state ends a listen. The native side also emits `stopped` when it resets
+ * just before starting, and that must not end the listen before the recogniser is up.
+ */
+export function listenEndsOn(state: 'listening' | 'stopped' | 'error', armed: boolean): boolean {
+  return state === 'error' || (state === 'stopped' && armed);
+}
+
+export interface PhoneListen {
+  /** Resolves once: a final result, an error, a stop, the max time, a cancel, or the release grace ending. */
+  result: Promise<ListenResult>;
+  /** The user let go. Wait RELEASE_GRACE_MS for the final words, then submit the best text heard. */
+  release(): void;
+  /** Stop now and discard what was heard. */
+  cancel(): void;
+}
+
+/**
+ * Start the phone's own recogniser and say why it ended. Used by the hold-to-talk mic (press in = start, release =
+ * release()) and by `listenOnce`. Every path resolves the result, so the caller can always reset its state.
+ */
+export function beginListen(lang: Lang, opts: { maxMs?: number; onPartial?: (text: string) => void } = {}): PhoneListen {
+  let resolveResult!: (r: ListenResult) => void;
+  const result = new Promise<ListenResult>((r) => {
+    resolveResult = r;
   });
+  if (!native) {
+    resolveResult({ text: null, reason: 'unavailable' });
+    return { result, release: () => {}, cancel: () => {} };
+  }
+  const rec = native;
+  let done = false;
+  let armed = false; // true once the recogniser reported `listening`
+  let partial = '';
+  let graceTimer: ReturnType<typeof setTimeout> | null = null;
+  const subs: { remove(): void }[] = [];
+
+  const finish = (text: string | null, reason: ListenReason) => {
+    if (done) return;
+    done = true;
+    clearTimeout(maxTimer);
+    if (graceTimer) clearTimeout(graceTimer);
+    subs.forEach((s) => s.remove());
+    void rec.voiceStop().catch(() => {});
+    useVoice.setState({ listening: false, partial: '' });
+    console.log('[voice] listen end', reason, text ?? '');
+    resolveResult({ text, reason });
+  };
+  // whatever was heard so far is the answer when time runs out or the recogniser stops without a final result
+  const endWithPartial = () => {
+    const t = transcriptOnRelease(null, partial);
+    finish(t, t ? 'ok' : 'silence');
+  };
+  const maxTimer = setTimeout(endWithPartial, opts.maxMs ?? 9000);
+
+  subs.push(
+    rec.addListener('onVoiceResult', (e) => {
+      partial = e.text;
+      useVoice.setState({ partial: e.text });
+      opts.onPartial?.(e.text);
+      if (!e.final) return;
+      if (e.text.trim()) finish(e.text.trim(), 'ok');
+      else finish(null, 'no-match');
+    }),
+    rec.addListener('onVoiceState', (e) => {
+      if (e.state === 'listening') {
+        armed = true;
+        useVoice.setState({ listening: true, error: null });
+        return;
+      }
+      if (!listenEndsOn(e.state, armed)) return;
+      if (e.state === 'error') {
+        const msg = e.message ?? 'error';
+        useVoice.setState({ error: msg });
+        const t = transcriptOnRelease(null, partial);
+        if (t) finish(t, 'ok');
+        else finish(null, /permission/i.test(msg) ? 'denied' : 'error');
+      } else {
+        endWithPartial();
+      }
+    }),
+  );
+
+  // stopping first is ordered on the native main thread, so the start below runs after the stop
+  stopWake();
+  rec.voiceStart(code(lang), false).catch(() => finish(null, 'unavailable'));
+
+  return {
+    result,
+    release() {
+      if (done || graceTimer) return;
+      graceTimer = setTimeout(endWithPartial, RELEASE_GRACE_MS);
+    },
+    cancel() {
+      finish(null, 'cancelled');
+    },
+  };
+}
+
+/** Listen once and say why it ended. Resolves as soon as the native side reports a final result, an error or a stop. */
+export async function listenOnceDetailed(lang: Lang, timeoutMs = 9000): Promise<ListenResult> {
+  if (!native) return { text: null, reason: 'unavailable' };
+  if (!(await ensureMic())) return { text: null, reason: 'denied' };
+  return beginListen(lang, { maxMs: timeoutMs }).result;
+}
+
+/** Listen once and resolve with what was said (or null on silence, error or no support). See listenOnceDetailed. */
+export async function listenOnce(lang: Lang, timeoutMs = 9000): Promise<string | null> {
+  return (await listenOnceDetailed(lang, timeoutMs)).text;
 }
 
 let wakeSubs: { remove(): void }[] = [];

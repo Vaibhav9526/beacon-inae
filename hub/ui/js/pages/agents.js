@@ -4,6 +4,7 @@ import * as ui from '../ui.js';
 import { api } from '../api.js';
 import { store } from '../store.js';
 import { GENRES, GENRE_LABEL, avatarKey, agentLook, roleOf, personaOf, runsOf, ruleWords, metricWords, severityLabel } from '../model.js';
+import { placePicker } from '../components/placePicker.js';
 
 const { h, icon, Button, IconButton, Tabs, Switch, Chip, Avatar, EmptyState, PageHeader, Field, Input, Textarea, Select, GroupRow, openDialog, toast, confirmDialog, clock, dayLabel } = ui;
 
@@ -169,7 +170,9 @@ async function runNow(a) {
   busy.run = null;
   if (d) {
     const n = d.signals || 0;
-    toast(a.name + ' checked: ' + n + (n === 1 ? ' signal' : ' signals') + ', ' + (d.items || 0) + ' items', {
+    // the delivery line says what was sent to the phones and Telegram, or why it was not
+    const line = d.delivery ? d.delivery.line : '';
+    toast(a.name + ' checked: ' + n + (n === 1 ? ' signal' : ' signals') + ', ' + (d.items || 0) + ' items' + (line ? '. ' + line : ''), {
       kind: n ? 'info' : 'ok'
     });
   }
@@ -314,6 +317,8 @@ function settingsTab(ctx, a) {
     placeName: a.place ? a.place.name : '',
     lat: a.place ? String(a.place.lat) : '',
     lon: a.place ? String(a.place.lon) : '',
+    state: (a.place && a.place.state) || '',
+    label: '',
     channels: [...(a.channels || [])],
     everyMin: String(a.everyMin || 30),
     members: (a.members || []).join(', '),
@@ -332,13 +337,11 @@ function settingsTab(ctx, a) {
       Field({ label: 'Name', id: 'set-name' },
         Input({ id: 'set-name', value: d.name, onInput: (v) => { d.name = v; } })),
       h('div', { class: 'form-grid' },
-        Field({ label: 'Place', id: 'set-place', desc: 'Used for weather, air and quake checks.' },
-          Input({ id: 'set-place', value: d.placeName, placeholder: 'Kochi', onInput: (v) => { d.placeName = v; } })),
-        h('div', { class: 'form-grid', style: { gridTemplateColumns: '1fr 1fr', gap: '8px' } },
-          Field({ label: 'Latitude', id: 'set-lat' },
-            Input({ id: 'set-lat', type: 'number', step: 'any', value: d.lat, onInput: (v) => { d.lat = v; } })),
-          Field({ label: 'Longitude', id: 'set-lon' },
-            Input({ id: 'set-lon', type: 'number', step: 'any', value: d.lon, onInput: (v) => { d.lon = v; } })))),
+        Field({ label: 'Place', id: 'set-place', span2: true, desc: 'Used for weather, air and quake checks.' },
+          placePicker({
+            id: 'set-place', name: d.placeName, lat: d.lat, lon: d.lon, state: d.state, label: d.label,
+            onChange: (p) => { d.placeName = p.name; d.lat = p.lat; d.lon = p.lon; d.state = p.state; d.label = p.label; }
+          }))),
       Field({ label: 'Watches', id: 'set-members', desc: 'Family names as used in health readings, separated by commas.' },
         Input({ id: 'set-members', value: d.members, placeholder: 'Maa, Papa', onInput: (v) => { d.members = v; } })),
       Field({ label: 'Notes', id: 'set-notes', desc: 'For example: Maa takes BP tablets at 8am.' },
@@ -389,7 +392,7 @@ async function saveSettings(a, d) {
     channels: d.channels,
     members: d.members.split(',').map((s) => s.trim()).filter(Boolean),
     notes: d.notes,
-    place: hasPlace ? { name: d.placeName.trim(), lat, lon, state: a.place ? a.place.state : undefined } : null
+    place: hasPlace ? { name: d.placeName.trim(), lat, lon, state: d.state || undefined } : null
   };
   const r = await api.put('/api/agents/' + a.id, body);
   if (r) {

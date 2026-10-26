@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { healthMetrics } from './healthMetrics.ts';
+import type { DeliveryReport } from './gateway.ts';
 import type { HealthStore } from './healthStore.ts';
 import { combine, emptyState, plainText } from './orchestrator.ts';
 import type { OrchestratorState } from './orchestrator.ts';
@@ -29,8 +30,11 @@ export interface HubOptions {
   now?: () => number;
   /** Runs an agent's node pipeline (sources and filters). Absent = agents only use their rules. */
   pipeline?: (agent: Agent) => Promise<{ items: FeedItem[]; results: NodeRunResult[] }>;
-  /** Where items found by pipelines (and alerts turned into items) go: the feed and the gateway. */
-  onItems?: (items: FeedItem[]) => void | Promise<void>;
+  /**
+   * Where items found by pipelines (and alerts turned into items) go: the feed and the gateway.
+   * A manual run passes deliverNow; the returned report (what reached phones and Telegram) is kept with the run detail.
+   */
+  onItems?: (items: FeedItem[], opts?: { deliverNow?: boolean }) => void | DeliveryReport | Promise<void | DeliveryReport>;
 }
 
 /** Owns the agents, runs them on their timers, combines their signals and hands alerts to the outbox. */
@@ -39,7 +43,7 @@ export class Hub {
   private file: string;
   private timer: ReturnType<typeof setInterval> | null = null;
   private lastRun: Record<string, number> = {};
-  private detail: Record<string, { items: number; results: NodeRunResult[] }> = {};
+  private detail: Record<string, { items: number; results: NodeRunResult[]; delivery?: DeliveryReport }> = {};
   private now: () => number;
 
   constructor(private o: HubOptions) {
@@ -94,7 +98,8 @@ export class Hub {
   }
 
   /** Run one agent now. Returns the signals; does not send anything. */
-  async runAgent(a: Agent): Promise<Signal[]> {
+  /** `deliverNow` is a manual Run: its items go to the phones and Telegram at once (see Gateway.dispatch). */
+  async runAgent(a: Agent, opts: { deliverNow?: boolean } = {}): Promise<Signal[]> {
     const at = this.now();
     this.lastRun[a.id] = at;
     try {
@@ -112,7 +117,10 @@ export class Hub {
           this.detail[a.id] = { items: r.items.length, results: r.results };
           const failed = r.results.filter((x) => !x.ok).length;
           found = `${r.items.length} item(s) from ${r.results.length} node(s)${failed ? `, ${failed} failed` : ''}`;
-          if (r.items.length) await this.o.onItems?.(r.items);
+          if (r.items.length) {
+            const delivery = await this.o.onItems?.(r.items, { deliverNow: opts.deliverNow });
+            if (delivery) this.detail[a.id] = { ...this.detail[a.id]!, delivery };
+          }
         } catch (e) {
           found = `nodes failed: ${e instanceof Error ? e.message : String(e)}`;
         }

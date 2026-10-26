@@ -31,7 +31,6 @@ export default function KidLayout() {
         <Tabs.Screen name="play" />
         <Tabs.Screen name="didi" />
         <Tabs.Screen name="me" />
-        <Tabs.Screen name="game/[id]" options={{ href: null }} />
       </Tabs>
     </ThemeProvider>
   );

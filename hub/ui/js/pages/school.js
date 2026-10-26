@@ -3,19 +3,9 @@
 import * as ui from '../ui.js';
 import { api } from '../api.js';
 import { GENRE_LABEL } from '../model.js';
+import { placePicker } from '../components/placePicker.js';
 
 const { h, icon, Avatar, Chip, Switch, Field, Input, openDialog, EmptyState, PageHeader } = ui;
-
-const CITIES = [
-  ['Delhi', 28.6139, 77.209],
-  ['Mumbai', 19.076, 72.8777],
-  ['Chennai', 13.0827, 80.2707],
-  ['Kolkata', 22.5726, 88.3639],
-  ['Bengaluru', 12.9716, 77.5946],
-  ['Hyderabad', 17.385, 78.4867],
-  ['Guwahati', 26.1445, 91.7362],
-  ['Kochi', 9.9312, 76.2673]
-];
 
 const HAIR_NAMES = { short: 'Short', bun: 'Bun', curly: 'Curly', long: 'Long', spiky: 'Spiky', side: 'Side part' };
 const STEP_NAMES = ['Persona', 'Set up', 'Look'];
@@ -85,6 +75,8 @@ function openEnrol(ctx, p) {
     placeName: '',
     lat: '',
     lon: '',
+    state: '',
+    label: '',
     members: firstAdult ? [memberKey(firstAdult)] : [],
     channels: { beacon: true, telegram: tgOn },
     look: { hair: p.look.hair, skin: p.look.skin, color: p.look.color },
@@ -112,7 +104,7 @@ function openEnrol(ctx, p) {
 
   function placeOf() {
     if (String(draft.lat).trim() === '') return null;
-    return { name: draft.placeName.trim() || 'My place', lat: Number(draft.lat), lon: Number(draft.lon) };
+    return { name: draft.placeName.trim() || 'My place', lat: Number(draft.lat), lon: Number(draft.lon), state: draft.state || undefined };
   }
 
   /* Step 0: recap */
@@ -155,22 +147,6 @@ function openEnrol(ctx, p) {
           }))
       : h('p', { class: 'field-desc' }, 'This persona has no missions yet. The agent starts with the built-in rules.');
 
-    const cityBtns = CITIES.map(([name, la, lo]) => {
-      const pressed = draft.placeName === name && String(draft.lat) === String(la);
-      return h('button', {
-        type: 'button',
-        class: 'chip-btn school-city',
-        'aria-pressed': pressed ? 'true' : 'false',
-        dataset: { focusKey: 'city-' + name },
-        onclick: () => {
-          draft.placeName = name;
-          draft.lat = String(la);
-          draft.lon = String(lo);
-          redraw('city-' + name);
-        }
-      }, name);
-    });
-
     const memberList = membersOf(st);
     const channelRow = (key, label, desc) => h('div', { class: 'school-switch-row' },
       h('div', { class: 'school-switch-text' },
@@ -184,13 +160,10 @@ function openEnrol(ctx, p) {
       missions,
       h('div', { class: 'school-block' },
         Field({ label: 'Place', id: 'school-place', desc: 'Used for weather, air and quake sources. Leave empty to skip.', children:
-          Input({ id: 'school-place', value: draft.placeName, placeholder: 'City or town', onInput: (v) => { draft.placeName = v; } }) }),
-        h('div', { class: 'school-cities', role: 'group', 'aria-label': 'City presets' }, cityBtns),
-        h('div', { class: 'school-latlon' },
-          Field({ label: 'Latitude', id: 'school-lat', children:
-            Input({ id: 'school-lat', type: 'number', min: -90, max: 90, step: 'any', value: draft.lat, onInput: (v) => { draft.lat = v; } }) }),
-          Field({ label: 'Longitude', id: 'school-lon', children:
-            Input({ id: 'school-lon', type: 'number', min: -180, max: 180, step: 'any', value: draft.lon, onInput: (v) => { draft.lon = v; } }) }))),
+          placePicker({
+            id: 'school-place', name: draft.placeName, lat: draft.lat, lon: draft.lon, state: draft.state, label: draft.label,
+            onChange: (p) => { draft.placeName = p.name; draft.lat = p.lat; draft.lon = p.lon; draft.state = p.state; draft.label = p.label; }
+          }) })),
       h('fieldset', { class: 'school-block' },
         h('legend', { class: 'field-label' }, 'Family members this agent looks after'),
         memberList.length

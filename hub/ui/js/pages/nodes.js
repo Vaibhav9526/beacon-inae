@@ -5,6 +5,7 @@
 import * as ui from '../ui.js';
 import { api } from '../api.js';
 import { GENRE_LABEL, avatarKey, agentLook, severityLabel } from '../model.js';
+import { placePicker } from '../components/placePicker.js';
 
 const { h, Button, IconButton, Tabs, Switch, Chip, Dot, Avatar, EmptyState, PageHeader, Input, Textarea, Select, Field, openDialog, toast, icon } = ui;
 
@@ -450,7 +451,14 @@ export function renderNodes(agent, ctx) {
     let labelVal = cur.label || (def ? def.label : cur.kind);
     const resultsEl = h('div', { class: 'node-test', 'aria-live': 'polite' });
 
-    const fieldNodes = ((def && def.fields) || []).map((f) => fieldControl(f, cfg, vals, errs));
+    // A kind with latitude and longitude fields gets the place picker instead; manual coordinates stay inside it.
+    const kindFields = (def && def.fields) || [];
+    const hasCoords = kindFields.some((f) => f.key === 'lat') && kindFields.some((f) => f.key === 'lon');
+    const fieldNodes = kindFields.map((f) => {
+      if (hasCoords && f.key === 'lon') return null;
+      if (hasCoords && f.key === 'lat') return placeField(cfg, vals, errs);
+      return fieldControl(f, cfg, vals, errs);
+    });
     const labelField = Field({ label: 'Label', id: 'nf-label', children: Input({ id: 'nf-label', value: labelVal, onInput: (v) => { labelVal = v; } }) });
 
     function readNode() {
@@ -508,7 +516,7 @@ export function renderNodes(agent, ctx) {
       title: def ? def.label : 'Node',
       description: def ? def.description : '',
       width: 500,
-      body: h('div', { class: 'node-form' }, labelField, fieldNodes, resultsEl),
+      body: h('div', { class: 'node-form' }, labelField, fieldNodes.filter(Boolean), resultsEl),
       actions: [
         { label: 'Test this node', variant: 'outline', keepOpen: true, onClick: () => testNode() },
         { label: 'Cancel', variant: 'outline' },
@@ -542,7 +550,8 @@ export function renderNodes(agent, ctx) {
       (out.results || []).forEach((r) => { map[r.nodeId] = r; });
       results[a.id] = map;
       const failed = (out.results || []).filter((r) => !r.ok).length;
-      toast(failed ? 'Path ran with ' + failed + (failed === 1 ? ' failing node' : ' failing nodes') : 'Path ran: ' + (out.items || 0) + ' items', {
+      const line = out.delivery && out.delivery.line ? '. ' + out.delivery.line : '';
+      toast(failed ? 'Path ran with ' + failed + (failed === 1 ? ' failing node' : ' failing nodes') : 'Path ran: ' + (out.items || 0) + ' items' + line, {
         kind: failed ? 'err' : 'ok'
       });
     }
@@ -561,6 +570,22 @@ export function renderNodes(agent, ctx) {
 
   paint();
   return root;
+}
+
+/** Place picker for a kind's latitude and longitude. Writes the picked coordinates into vals.lat and vals.lon. */
+function placeField(cfg, vals, errs) {
+  vals.lat = cfg.lat == null ? '' : String(cfg.lat);
+  vals.lon = cfg.lon == null ? '' : String(cfg.lon);
+  const err = h('div', { class: 'field-error', id: 'err-lat', role: 'alert' });
+  errs.lat = err;
+  return Field({ label: 'Place', id: 'nf-place', desc: 'Sets the latitude and longitude for this step.' },
+    placePicker({
+      id: 'nf-place',
+      lat: vals.lat,
+      lon: vals.lon,
+      onChange: (p) => { vals.lat = p.lat; vals.lon = p.lon; },
+    }),
+    err);
 }
 
 function fieldControl(f, cfg, vals, errs) {

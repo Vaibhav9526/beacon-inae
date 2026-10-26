@@ -1369,3 +1369,85 @@
     transition: none;
   }
 }
+
+/* Place picker (components/placePicker.js). The list is fixed, so it is not clipped by dialog bodies. */
+.place-box {
+  position: relative;
+}
+
+.place-list {
+  position: fixed;
+  z-index: var(--z-popover);
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  overflow-y: auto;
+  background: var(--bg-canvas);
+  border: 1px solid var(--dialog-ring);
+  border-radius: 10px;
+  box-shadow: var(--shadow-overlay);
+}
+
+.place-list[hidden] {
+  display: none;
+}
+
+.place-opt {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-2);
+}
+
+.place-opt.is-active {
+  background: var(--hover);
+}
+
+.place-opt-name {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.place-opt-sub {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.place-hit {
+  background: transparent;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.place-note {
+  padding: 8px 10px;
+  color: var(--text-muted);
+  font-size: 13px;
+  list-style: none;
+}
+
+.place-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.place-coords {
+  margin-top: 8px;
+}
+
+.place-coords summary {
+  cursor: pointer;
+}
+
+.place-coords-grid {
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}

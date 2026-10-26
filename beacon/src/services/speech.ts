@@ -45,11 +45,50 @@ async function pickVoice(lang: Lang, female: boolean): Promise<string | undefine
   }
 }
 
+/**
+ * The phone's own voice. Never silent on purpose: no Hindi voice installed -> English voice (pickVoice returns no
+ * voice for hi when none is installed, and the language drops to en-IN), and a failing engine is retried once with
+ * the default voice.
+ */
 function localSpeak(text: string, lang: Lang, persona: PersonaId, onDone?: () => void) {
   const st = STYLE[persona];
-  void pickVoice(lang, st.female).then((voice) =>
-    Speech.speak(text, { language: lang === 'hi' ? 'hi-IN' : 'en-IN', pitch: st.pitch, rate: st.rate, voice, onDone, onStopped: onDone, onError: onDone }),
-  );
+  void pickVoice(lang, st.female)
+    .then((voice) => {
+      const useHi = lang === 'hi' && !!voice;
+      if (lang === 'hi' && !useHi) console.log('[voice] no Hindi TTS voice installed, speaking with the English voice');
+      const language = useHi ? 'hi-IN' : 'en-IN';
+      const done = () => {
+        console.log('[voice] tts done');
+        onDone?.();
+      };
+      try {
+        Speech.speak(text, {
+          language,
+          pitch: st.pitch,
+          rate: st.rate,
+          voice,
+          onStart: () => console.log('[voice] tts start', language),
+          onDone: done,
+          onStopped: done,
+          onError: (e: unknown) => {
+            console.log('[voice] tts error', String(e));
+            onDone?.();
+          },
+        });
+      } catch (e) {
+        console.log('[voice] tts threw, retrying with default voice', String(e));
+        try {
+          Speech.speak(text, { language: 'en-IN', onDone: done, onError: done });
+        } catch (e2) {
+          console.log('[voice] tts retry failed', String(e2));
+          onDone?.();
+        }
+      }
+    })
+    .catch((e) => {
+      console.log('[voice] tts voice lookup failed', String(e));
+      onDone?.();
+    });
 }
 
 function stopPlayer() {
@@ -69,7 +108,8 @@ function stopPlayer() {
 export async function speak(text: string, lang: Lang, persona: PersonaId = 'default', onDone?: () => void) {
   stopSpeaking();
   const au = audio();
-  if (au && Platform.OS !== 'web' && (await getKey())) {
+  const key = await getKey().catch(() => null);
+  if (au && Platform.OS !== 'web' && key) {
     try {
       const role = persona as VoiceRole;
       const voice = useEleven.getState().voices[role] ?? useEleven.getState().voices.default;

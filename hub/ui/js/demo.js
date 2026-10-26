@@ -243,7 +243,7 @@ const S = {
   alerts,
   audit: [],
   connections: {
-    telegram: { connected: true, paired: 3, bot: 'beacon_family_bot' },
+    telegram: { state: 'connected', connected: true, paired: 3, bot: 'beacon_family_bot', saved: true, hint: 'Saved (ends ...demo)' },
     beacon: { paired: 3 },
     brain: { kind: 'claude', ok: true },
     haiku: true,
@@ -339,6 +339,11 @@ function on(method, pattern, fn) {
 on('GET', '/api/state', () => clone(S));
 on('GET', '/api/situation', () => clone(S.situation));
 on('GET', '/api/cap/:alertId', () => ({ ok: true, text: 'Demo official alert text.' }));
+// The demo router ignores the ?q= part, so this returns a fixed short list.
+on('GET', '/api/places', () => ({ places: [
+  { name: 'Raipur', state: 'Chhattisgarh', country: 'IN', lat: 21.2514, lon: 81.6296, label: 'Raipur, Chhattisgarh, IN' },
+  { name: 'Kochi', state: 'Kerala', country: 'IN', lat: 9.9312, lon: 76.2673, label: 'Kochi, Kerala, IN' },
+] }));
 
 on('POST', '/api/agents', (_, b) => {
   if (b.templateId) {
@@ -500,7 +505,8 @@ on('POST', '/api/asks/:id', (p, b) => {
 
 on('PUT', '/api/settings', (_, b) => {
   if (typeof b.allowAdultAsks === 'boolean') S.group.allowAdultAsks = b.allowAdultAsks;
-  if (b.openWeatherKey !== undefined) S.connections.openWeather = { hasKey: String(b.openWeatherKey).trim() !== '' };
+  if (b.openWeatherKey !== undefined && String(b.openWeatherKey).trim() !== '') S.connections.openWeather = { hasKey: true, hint: 'Saved (ends ...demo)' };
+  if (b.removeOpenWeatherKey === true) S.connections.openWeather = { hasKey: false, hint: '' };
   return { allowAdultAsks: S.group.allowAdultAsks, openWeather: S.connections.openWeather };
 });
 
@@ -549,7 +555,12 @@ on('POST', '/api/mcp/:id/call', (p, b) => ({ result: { text: 'Demo result from '
 
 on('POST', '/api/health/csv', () => ({ ok: true, rows: 12 }));
 on('POST', '/api/health/reading', () => ({ ok: true }));
-on('POST', '/api/telegram/token', () => ({ ok: true }));
+on('POST', '/api/telegram/token', () => ({ bot: 'beacon_family_bot', telegram: S.connections.telegram }));
+on('POST', '/api/telegram/retry', () => ({ telegram: S.connections.telegram }));
+on('DELETE', '/api/telegram/token', () => {
+  S.connections.telegram = { ...S.connections.telegram, state: 'none', connected: false, bot: '', saved: false, hint: '' };
+  return { telegram: S.connections.telegram };
+});
 on('POST', '/api/telegram/pair', () => ({ code: 'LION-42', bot: 'beacon_family_bot' }));
 on('POST', '/api/beacon/pair', () => ({ code: 'PAIR-31', expiresAt: now() + 10 * MIN, qr: qrDataUrl('PAIR-31') }));
 on('POST', '/api/brain', (_, b) => {
