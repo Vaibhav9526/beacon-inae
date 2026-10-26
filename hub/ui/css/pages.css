@@ -447,6 +447,10 @@ input[type="checkbox"] {
 .conn-head-status { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .conn-text { margin: 0; font-size: var(--text-md); line-height: var(--lh-md); color: var(--text-muted); }
 .conn-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.conn-mode { display: flex; align-items: flex-start; gap: 12px; padding: 12px; border-radius: var(--r-md); background: var(--bg-surface); }
+.conn-mode-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.conn-mode .switch { flex: none; margin-top: 2px; }
+.conn-chats { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .conn-pair { display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: var(--r-md); background: var(--bg-surface); }
 .conn-code { font-family: var(--font-mono); font-size: var(--text-xl); letter-spacing: 0.08em; color: var(--text); }
 .conn-qr-wrap { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }

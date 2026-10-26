@@ -12,6 +12,7 @@ import { MOD_HTML } from './modPage.ts';
 import { registerChat } from './chat.ts';
 import { RelayService } from './relay.ts';
 import { ReportService } from './reports.ts';
+import { TelegramService, registerTelegram, type TelegramOptions } from './telegram.ts';
 
 export interface NewsCard {
   id: string;
@@ -40,6 +41,8 @@ export interface AppDeps {
   dataDir: string;
   /** Shown by GET /healthz. */
   version?: string;
+  /** Telegram bot transport, public URL and log sink. Defaults come from the environment. */
+  telegram?: TelegramOptions;
 }
 
 const num = (v: string | null, d?: number) => {
@@ -285,6 +288,11 @@ export function createApp(d: AppDeps) {
   });
 
   registerChat(r, d.db, now, signed, mod);
+
+  // Telegram bot: webhook mode. Re-point stored bots at this host on every start (best effort, never throws).
+  const telegram = new TelegramService(d.db, { now, ...d.telegram });
+  registerTelegram(r, telegram, signed, (dev) => relay.hubOf(dev));
+  telegram.reregisterAll().catch((e) => console.error('telegram re-register', e instanceof Error ? e.message : 'error'));
 
   return r;
 }

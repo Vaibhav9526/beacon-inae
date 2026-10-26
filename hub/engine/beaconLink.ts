@@ -51,7 +51,8 @@ export class BeaconLink implements Sender {
     this.hubId = base32(pub);
   }
 
-  private async call(method: string, path: string, payload?: unknown): Promise<any> {
+  /** One signed call. Returns the status and the parsed body; the caller decides what a refusal means. */
+  private async signed(method: string, path: string, payload?: unknown): Promise<{ res: Response; json: any }> {
     const raw = payload === undefined ? '' : JSON.stringify(payload);
     const ts = String(Date.now());
     const msg = utf8(`${ts}.${method}.${path.split('?')[0]}.${hex(sha256(utf8(raw)))}`);
@@ -62,8 +63,22 @@ export class BeaconLink implements Sender {
     });
     const text = await res.text();
     const json = text ? JSON.parse(text) : {};
+    return { res, json };
+  }
+
+  private async call(method: string, path: string, payload?: unknown): Promise<any> {
+    const { res, json } = await this.signed(method, path, payload);
     if (!res.ok) throw new Error(json.error ?? `server said ${res.status}`);
     return json;
+  }
+
+  /**
+   * A signed call to any /v1/hub path that returns the HTTP status with the body instead of throwing on a refusal.
+   * A network failure still throws. Used by the Telegram relay client, which maps each refusal to a friendly message.
+   */
+  async request(method: string, path: string, payload?: unknown): Promise<{ status: number; json: any }> {
+    const { res, json } = await this.signed(method, path, payload);
+    return { status: res.status, json };
   }
 
   /** Point the link at another relay server. Takes effect on the next call; the hub's identity is unchanged. */

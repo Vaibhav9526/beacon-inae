@@ -52,6 +52,17 @@ CREATE TABLE IF NOT EXISTS chat_msgs (
 CREATE INDEX IF NOT EXISTS chat_room_ts ON chat_msgs (room, ts);
 CREATE TABLE IF NOT EXISTS chat_reports (msg_id TEXT, reporter TEXT, reason TEXT, ts INTEGER, PRIMARY KEY (msg_id, reporter));
 CREATE TABLE IF NOT EXISTS chat_bans (device TEXT PRIMARY KEY, ts INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS telegram_cfg (
+  hub_id TEXT PRIMARY KEY, token TEXT NOT NULL, secret TEXT NOT NULL, username TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS telegram_chats (
+  hub_id TEXT NOT NULL, chat_id INTEGER NOT NULL, name TEXT NOT NULL, paired_at INTEGER NOT NULL, PRIMARY KEY (hub_id, chat_id)
+);
+CREATE TABLE IF NOT EXISTS telegram_codes (code TEXT PRIMARY KEY, hub_id TEXT NOT NULL, expires INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS telegram_inbox (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, hub_id TEXT NOT NULL, chat_id INTEGER NOT NULL, name TEXT NOT NULL, text TEXT NOT NULL, at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS telegram_inbox_hub ON telegram_inbox (hub_id, id);
 `;
 
 export function openDb(path: string): Db {

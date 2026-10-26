@@ -5,7 +5,7 @@ import type { Sender } from './outbox.ts';
 import { splitHtml, stripHtml, TELEGRAM_MAX } from './digest.ts';
 
 /** Plain text split on newlines (and at the limit for very long lines). */
-function splitPlain(text: string, max: number): string[] {
+export function splitPlain(text: string, max: number): string[] {
   if (text.length <= max) return [text];
   const out: string[] = [];
   let cur = '';

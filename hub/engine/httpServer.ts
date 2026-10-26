@@ -145,9 +145,21 @@ export function startHttp(app: HubApp, opts: { port?: number; token?: string; pa
       if (m === 'DELETE' && p === '/api/telegram/token') return send(200, { telegram: await app.removeTelegramToken() });
       if (m === 'POST' && p === '/api/telegram/retry') return send(200, { telegram: await app.retryTelegram().then(() => app.telegramInfo()) });
       if (m === 'POST' && p === '/api/telegram/pair') {
-        if (!app.telegram) return send(409, { error: 'Telegram is not connected yet. Check the bot token, or press Retry now.' });
-        return send(200, { code: app.telegram.newPairingCode(), bot: '' });
+        try {
+          return send(200, await app.pairingCode());
+        } catch (e) {
+          return send(409, { error: (e as Error).message });
+        }
       }
+      if (m === 'PUT' && p === '/api/telegram/mode') {
+        const b = await body(req);
+        try {
+          return send(200, { telegram: await app.setTelegramMode(b.mode) });
+        } catch (e) {
+          return send(400, { error: (e as Error).message });
+        }
+      }
+      if (m === 'POST' && p === '/api/telegram/test') return send(200, await app.testTelegram());
       if (m === 'POST' && p === '/api/beacon/pair') {
         const b = await body(req);
         if (b.memberId) return send(200, await app.invite(String(b.memberId)));

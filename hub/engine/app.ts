@@ -25,6 +25,8 @@ import type { Situation } from './situation.ts';
 import { instantiate, templateById, TEMPLATES } from './templates.ts';
 import { classifyTelegramError, cleanTelegramToken, getBotName, TelegramLink, TelegramSupervisor } from './telegram.ts';
 import type { SupervisorDeps, TelegramState, TelegramStatus } from './telegram.ts';
+import { defaultTelegramMode, TelegramViaRelay } from './telegramRelay.ts';
+import type { RelayTelegramStatus, TelegramInbound, TelegramMode } from './telegramRelay.ts';
 import type { Agent, Alert, Channel, FeedItem, GatewayRoute, GroupMessage, Member, MemberRole, NodeSpec, WireMessage } from './types.ts';
 import { chunkFeed, decodeWire, encodeWire, newGroupKey } from './wire.ts';
 
@@ -33,6 +35,10 @@ interface Config {
   allowed: Channel[];
   telegram: TelegramState;
   telegramToken?: string;
+  /** where Telegram runs; unset means the default for the relay address (see defaultTelegramMode) */
+  telegramMode?: TelegramMode;
+  /** newest inbound relay message id handled for Telegram */
+  telegramInboxSince?: string;
   anthropicKey?: string;
   openWeatherKey?: string;
   relayUrl: string;
@@ -142,7 +148,13 @@ export class HubApp {
   readonly offline: boolean;
 
   readonly telegramSup: TelegramSupervisor;
+  /** Telegram run by the relay server (used when the mode is 'relay') */
+  readonly telegramRelay: TelegramViaRelay;
   private telegramProbe: (token: string) => Promise<string>;
+  /** messages from paired Telegram chats, newest first (relay mode); kept in memory only */
+  private telegramInbox: TelegramInbound[] = [];
+  /** the relay failed its last health check; the next success re-registers and re-syncs Telegram */
+  private relayWasDown = false;
 
   /**
    * `telegramStart` and `telegramProbe` replace the real Telegram calls in tests; `telegramDelays` shortens the retry waits.
@@ -177,6 +189,29 @@ export class HubApp {
 
     this.link = opts.link ?? new BeaconLink(this.dir, this.cfg.relayUrl);
     this.senders = [...(opts.extraSenders ?? []), this.link];
+    this.telegramRelay = new TelegramViaRelay({
+      relay: this.link,
+      getToken: () => this.cfg.telegramToken,
+      setToken: (t) => {
+        if (t) this.cfg.telegramToken = t;
+        else delete this.cfg.telegramToken;
+        this.writeCfg();
+      },
+      getChats: () => [...this.cfg.telegram.chats],
+      setChats: (ids) => {
+        this.cfg.telegram = { chats: [...new Set(ids)] };
+        this.writeCfg();
+      },
+      getCursor: () => this.cfg.telegramInboxSince,
+      setCursor: (c) => {
+        this.cfg.telegramInboxSince = c;
+        this.writeCfg();
+      },
+      onInbound: (m) => this.onTelegramText(m),
+      onChange: () => this.emit('run'),
+      log: (line) => console.log(line),
+    });
+    if (this.telegramMode() === 'relay') this.addSender(this.telegramRelay);
     this.outbox = new Outbox({
       senders: this.senders,
       audit: this.audit,
@@ -198,7 +233,8 @@ export class HubApp {
       // Telegram copies of feed items still go through the first-send approval and the audit log
       // a refused or failed send throws, so the gateway can report it (the outbox itself does not throw)
       sendTelegram: async (text, o) => {
-        if (!this.telegram) throw new Error('Telegram is not connected');
+        // in relay mode the relay sender reports its own refusals (not set up, no chats) through the outbox
+        if (!this.telegram && this.telegramMode() !== 'relay') throw new Error('Telegram is not connected');
         const alert: Alert = { id: `feed-${Date.now().toString(36)}`, severity: 'warning', title: 'Feed', body: text, channels: ['telegram'], signals: [], at: Date.now(), status: 'pending-approval' };
         const done = await this.outbox.deliver(alert, text, o);
         if (done.status !== 'sent') throw new Error(done.note ?? 'Telegram did not take the message');
@@ -242,8 +278,9 @@ export class HubApp {
       delays: opts.telegramDelays,
       log: (line) => console.log(line),
     });
-    // the saved token connects on every start, in the background; failures retry and never block startup
-    if (this.cfg.telegramToken) void this.telegramSup.connect(this.cfg.telegramToken).catch(() => {});
+    // the saved token connects on every start, in the background; failures retry and never block startup.
+    // In relay mode the relay gets the token on the first sync (startRelay), not this computer.
+    if (this.cfg.telegramToken && this.telegramMode() === 'direct') void this.telegramSup.connect(this.cfg.telegramToken).catch(() => {});
   }
 
   // ---- config ---------------------------------------------------------
@@ -281,9 +318,13 @@ export class HubApp {
    */
   setRelayUrl(input: string): string {
     const url = cleanRelayUrl(input);
+    const before = this.telegramMode();
     this.cfg.relayUrl = url;
     this.writeCfg();
     this.link.setUrl(url);
+    // with no mode chosen yet, the default follows the address, so Telegram moves with it
+    const after = this.telegramMode();
+    if (after !== before) void this.moveTelegram(after).catch(() => {});
     return url;
   }
   /** Ask a Beacon server whether it is up: GET {url}/healthz, from here so the browser's CORS rules do not apply. */
@@ -735,11 +776,22 @@ export class HubApp {
       await this.link.register();
     } catch {
       /* the server may be offline right now; polling keeps trying */
+      this.relayWasDown = true;
     }
+    this.telegramRelay.requestSync();
     const tick = () => {
       void this.gateway.flushDigests().then((r) => { if (r.flushed.length) this.emit('feed'); }).catch(() => {});
       void this.pollInbox().catch(() => {});
-      void this.link.phones().then((p) => (this.phonesPaired = p.length)).catch(() => {});
+      void this.link.phones().then(
+        (p) => {
+          this.phonesPaired = p.length;
+          this.relayBack();
+        },
+        () => {
+          this.relayWasDown = true;
+        },
+      );
+      if (this.telegramMode() === 'relay') void this.telegramRelay.tick();
     };
     tick();
     this.relayTimer = setInterval(tick, everyMs);
@@ -748,6 +800,13 @@ export class HubApp {
   stopRelay() {
     if (this.relayTimer) clearInterval(this.relayTimer);
     this.relayTimer = null;
+  }
+  /** The relay answered again after a failure: register once more, then let Telegram re-sync (token and chats). */
+  private relayBack() {
+    if (!this.relayWasDown) return;
+    this.relayWasDown = false;
+    void this.link.register().catch(() => {});
+    this.telegramRelay.requestSync();
   }
 
   // ---- MCP ------------------------------------------------------------
@@ -810,10 +869,12 @@ export class HubApp {
    * the error says so and the saved token (if any) is kept. If Telegram cannot be reached, the token is saved and the
    * connection retries in the background. The token is never part of an error message.
    */
-  async connectTelegram(input: string): Promise<TelegramStatus> {
+  async connectTelegram(input: string): Promise<TelegramStatus | RelayTelegramStatus> {
     const token = cleanTelegramToken(input);
     if (!token) throw new Error('Paste the bot token first.');
     if (!/^\d+:[A-Za-z0-9_-]{10,}$/.test(token)) throw new Error('That is not a bot token. It looks like 123456:ABC..., and @BotFather gives it to you.');
+    // relay mode: the token goes to the relay, which checks it with Telegram; nothing is checked here
+    if (this.telegramMode() === 'relay') return this.telegramRelay.connect(token);
     try {
       await this.telegramProbe(token);
     } catch (e) {
@@ -825,28 +886,118 @@ export class HubApp {
     this.writeCfg();
     return this.telegramSup.connect(token);
   }
-  /** The Retry button: connect again with the saved token. */
-  retryTelegram(): Promise<TelegramStatus> {
+  /** The Retry button: connect again with the saved token (relay mode: sync with the relay now). */
+  retryTelegram(): Promise<TelegramStatus | RelayTelegramStatus> {
+    if (this.telegramMode() === 'relay') {
+      this.telegramRelay.requestSync();
+      return this.telegramRelay.sync();
+    }
     return this.telegramSup.retryNow();
   }
-  /** The Remove key button: stop Telegram and forget the token. Paired chats stay paired. */
+  /** The Remove key button: forget the token (also on the relay in relay mode). Paired chats stay paired. */
   async removeTelegramToken() {
-    await this.telegramSup.forget();
-    delete this.cfg.telegramToken;
-    this.writeCfg();
+    if (this.telegramMode() === 'relay') {
+      await this.telegramRelay.disconnect();
+    } else {
+      await this.telegramSup.forget();
+      delete this.cfg.telegramToken;
+      this.writeCfg();
+    }
     return this.telegramInfo();
   }
+
+  /** Where Telegram runs right now: the saved choice, else the default for the relay address. */
+  telegramMode(): TelegramMode {
+    return this.cfg.telegramMode ?? defaultTelegramMode(this.cfg.relayUrl);
+  }
+
+  /**
+   * Switch where Telegram runs. The choice is saved. Switching keeps the saved token and the paired chats: going to the
+   * relay uploads the token there; going back to direct removes it from the relay and connects this computer again.
+   */
+  async setTelegramMode(mode: TelegramMode): Promise<ReturnType<HubApp['telegramInfo']>> {
+    if (mode !== 'relay' && mode !== 'direct') throw new Error('Telegram mode must be relay or direct.');
+    const from = this.telegramMode();
+    this.cfg.telegramMode = mode;
+    this.writeCfg();
+    if (from !== mode) await this.moveTelegram(mode);
+    return this.telegramInfo();
+  }
+
+  /** Starts Telegram in the given mode and stops it in the other: senders, the local bot, and the relay's copy of the token. */
+  private async moveTelegram(mode: TelegramMode): Promise<void> {
+    const token = this.cfg.telegramToken;
+    if (mode === 'relay') {
+      await this.telegramSup.forget();
+      this.addSender(this.telegramRelay);
+      await this.telegramRelay.sync().catch(() => {});
+    } else {
+      this.senders.splice(0, this.senders.length, ...this.senders.filter((s) => s !== this.telegramRelay));
+      await this.telegramRelay.unregister();
+      if (token) void this.telegramSup.connect(token).catch(() => {});
+    }
+    this.emit('run');
+  }
+
+  /**
+   * A pairing code to send to the bot with /start. Relay mode asks the relay for it; direct mode uses the local bot.
+   * Throws a readable error when Telegram is not set up.
+   */
+  async pairingCode(): Promise<{ code: string; bot: string }> {
+    if (this.telegramMode() === 'relay') return { code: await this.telegramRelay.pairingCode(), bot: this.telegramInfo().bot };
+    if (!this.telegram) throw new Error('Telegram is not connected yet. Check the bot token, or press Retry now.');
+    return { code: this.telegram.newPairingCode(), bot: '' };
+  }
+
+  /**
+   * Send one test line to every paired chat. It goes through the outbox like any message, so the approval and the
+   * audit log apply. Returns what happened, never the token.
+   */
+  async testTelegram(): Promise<{ ok: boolean; note: string }> {
+    if (this.cfg.telegram.chats.length === 0) return { ok: false, note: 'No chat is paired yet. Get a pairing code and send it to the bot.' };
+    const text = 'Beacon Hub test: if you can read this, Telegram alerts reach this chat.';
+    const alert: Alert = { id: `test-${Date.now().toString(36)}`, severity: 'info', title: 'Telegram test', body: text, channels: ['telegram'], signals: [], at: Date.now(), status: 'pending-approval' };
+    const done = await this.outbox.deliver(alert, text);
+    return done.status === 'sent' ? { ok: true, note: 'Sent to your paired chats.' } : { ok: false, note: done.note ?? 'Telegram did not take the message.' };
+  }
+
+  /** A text message from a paired chat (relay mode). The one handler for chat text; nothing acts on it yet. */
+  private onTelegramText(m: TelegramInbound) {
+    this.telegramInbox = [m, ...this.telegramInbox].slice(0, 50);
+  }
+
   telegramInfo() {
+    const mode = this.telegramMode();
+    const paired = this.cfg.telegram.chats.length;
+    const saved = !!this.cfg.telegramToken;
+    const hint = keyHint(this.cfg.telegramToken);
+    if (mode === 'relay') {
+      const s = this.telegramRelay.status;
+      return {
+        mode,
+        state: s.state,
+        connected: s.state === 'connected',
+        bot: s.state === 'connected' ? s.bot : '',
+        message: 'message' in s ? s.message : '',
+        attempt: 0,
+        paired,
+        saved,
+        hint,
+        chats: this.telegramRelay.chatList(),
+      };
+    }
     const s = this.telegramSup.status;
     return {
+      mode,
       state: s.state,
       connected: s.state === 'connected',
       bot: s.state === 'connected' ? s.bot : '',
       message: s.state === 'reconnecting' || s.state === 'rejected' || s.state === 'unreachable' ? s.message : '',
       attempt: s.state === 'reconnecting' ? s.attempt : 0,
-      paired: this.cfg.telegram.chats.length,
-      saved: !!this.cfg.telegramToken,
-      hint: keyHint(this.cfg.telegramToken),
+      paired,
+      saved,
+      hint,
+      chats: this.cfg.telegram.chats.map((id) => ({ id, name: '' })),
     };
   }
 

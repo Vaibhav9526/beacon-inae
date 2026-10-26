@@ -5,7 +5,7 @@ import * as ui from '../ui.js';
 import { api } from '../api.js';
 import { store } from '../store.js';
 
-const { h, Button, Chip, Dot, Field, Input, PageHeader, toast, clock } = ui;
+const { h, Button, Chip, Dot, Field, Input, PageHeader, Switch, toast, clock } = ui;
 
 const BRAINS = [
   ['none', 'None', 'Alerts use plain built-in wording. Nothing is sent to a model.'],
@@ -17,7 +17,7 @@ const BRAINS = [
 const BRAIN_LABEL = Object.fromEntries(BRAINS.map(([id, label]) => [id, label]));
 
 // Per-viewer state for the pairing results and the brain choice (not data; survives re-renders).
-const tg = { pair: null };
+const tg = { pair: null, test: null };
 const phones = { qr: null };
 const brain = { pick: null };
 const relay = { check: null };
@@ -36,23 +36,43 @@ const TG_CHIP = {
   connected: { tone: 'ok', dot: 'ok' },
   reconnecting: { tone: 'warn', dot: 'bad', label: 'Reconnecting...' },
   rejected: { tone: 'danger', dot: 'bad', label: 'Token rejected' },
-  unreachable: { tone: 'warn', dot: 'bad', label: 'Cannot reach Telegram' }
+  unreachable: { tone: 'warn', dot: 'bad', label: 'Cannot reach Telegram' },
+  waiting: { tone: 'warn', dot: 'asleep', label: 'Waiting for the relay' },
+  'no-telegram': { tone: 'warn', dot: 'bad', label: 'Relay has no Telegram yet' }
 };
 
 function telegramStatus(state) {
   const t = (state.connections && state.connections.telegram) || {};
   const s = t.state || (t.connected ? 'connected' : 'none');
+  const relayMode = t.mode === 'relay';
   const paired = Number(t.paired) || 0;
   const chip = TG_CHIP[s] || TG_CHIP.none;
   let label = chip.label;
-  if (s === 'connected') label = t.bot ? 'Connected as @' + String(t.bot).replace(/^@/, '') : 'Connected';
+  if (s === 'connected') label = t.bot ? 'Connected as @' + String(t.bot).replace(/^@/, '') + (relayMode ? ' via relay' : '') : 'Connected';
   if (s === 'reconnecting') label = 'Reconnecting... (try ' + (t.attempt || 1) + ' of 5)';
   const facts = [t.hint, paired + (paired === 1 ? ' chat paired' : ' chats paired')].filter(Boolean).join(' · ');
+  const chats = Array.isArray(t.chats) ? t.chats : [];
   return h('div', { class: 'conn-head-status' },
     Dot({ state: chip.dot, label }),
     pill(chip.tone, label),
     h('span', { class: 'row-sub' }, facts),
+    chats.length ? h('ul', { class: 'conn-chats' }, chats.map((c) => h('li', { class: 'row-sub' }, c.name || 'Chat without a name'))) : null,
     t.message ? h('span', { class: 'row-sub', role: 'status' }, t.message) : null);
+}
+
+/** The mode switch: Telegram on the relay server (always on) or on this computer. The choice is saved by the hub. */
+function telegramMode(state) {
+  const t = (state.connections && state.connections.telegram) || {};
+  return h('div', { class: 'conn-mode' },
+    Switch({
+      checked: t.mode === 'relay',
+      label: 'Run Telegram on the relay server (always on)',
+      onChange: (on) => setTelegramMode(document.querySelector('.connections-page'), on ? 'relay' : 'direct')
+    }),
+    h('div', { class: 'conn-mode-text' },
+      h('span', { class: 'conn-radio-title' }, 'Run Telegram on the relay server (always on)'),
+      h('p', { class: 'field-desc' },
+        'Your bot token is sent to your relay server so the bot keeps working when this PC is off or cannot reach Telegram. On the free Render plan the server may sleep for about a minute after being idle.')));
 }
 
 function telegramPair() {
@@ -61,7 +81,13 @@ function telegramPair() {
     h('span', { class: 'field-label' }, 'Pairing code'),
     h('code', { class: 'conn-code' }, tg.pair.code),
     h('p', { class: 'field-desc' },
-      'Open a chat with the bot' + (tg.pair.bot ? ' ' + tg.pair.bot : '') + ' in Telegram and send this code. Repeat for each family chat.'));
+      'Open your bot' + (tg.pair.bot ? ' @' + String(tg.pair.bot).replace(/^@/, '') : '') + ' in Telegram and send: /start ' + tg.pair.code));
+}
+
+function telegramTestLine() {
+  if (!tg.test) return null;
+  if (tg.test.busy) return h('p', { class: 'conn-relay-result', role: 'status' }, 'Sending the test message...');
+  return h('p', { class: 'conn-relay-result ' + (tg.test.ok ? 'ok' : 'bad'), role: 'status' }, tg.test.note);
 }
 
 function phonesStatus(state) {
@@ -152,6 +178,25 @@ async function removeTelegram(root) {
   if (!res) return;
   applyTelegram(root, res.telegram);
   toast('Telegram token removed. Paired chats are kept.', { kind: 'ok', title: 'Telegram' });
+}
+
+/** Where Telegram runs. The hub saves the choice; relay mode uploads the token, direct mode connects this computer. */
+async function setTelegramMode(root, mode) {
+  const res = await api.put('/api/telegram/mode', { mode });
+  if (!res) return;
+  tg.pair = null;
+  tg.test = null;
+  applyTelegram(root, res.telegram);
+  toast(mode === 'relay' ? 'Telegram now runs on the relay server.' : 'Telegram now runs on this computer.', { kind: 'ok', title: 'Telegram' });
+}
+
+/** Sends one test line to every paired chat and shows what the hub got back. */
+async function testTelegram(root) {
+  tg.test = { busy: true };
+  paint(root);
+  const res = await api.post('/api/telegram/test', {});
+  tg.test = res ? { ok: !!res.ok, note: res.note || '' } : { ok: false, note: 'the hub could not run the test' };
+  paint(root);
 }
 
 async function getPairingCode(root) {
@@ -253,7 +298,9 @@ function paint(root) {
     if (el) el.replaceChildren(...(Array.isArray(node) ? node : [node].filter(Boolean)));
   };
   set('tg-status', telegramStatus(state));
+  set('tg-mode', telegramMode(state));
   set('tg-pair', telegramPair());
+  set('tg-test', telegramTestLine());
   set('phones-status', phonesStatus(state));
   set('phones-pair', phonesPair());
   set('relay-status', relayStatus());
@@ -302,7 +349,7 @@ export default {
   render(ctx) {
     const state = ctx.state;
     const tgInfo = (state.connections && state.connections.telegram) || {};
-    const tgToken = Field({ label: 'Bot token', id: 'conn-tg-token', desc: 'From BotFather in Telegram. Stored on this computer and reconnected on every start. It is never shown again.', children:
+    const tgToken = Field({ label: 'Bot token', id: 'conn-tg-token', desc: 'From BotFather in Telegram. Stored on this computer. It is never shown again.', children:
       Input({ id: 'conn-tg-token', type: 'password', placeholder: tgInfo.hint ? tgInfo.hint + '. Paste a new token to replace it' : '123456:ABC...', autocomplete: 'off' }) });
 
     return h('div', { class: 'page connections-page' },
@@ -315,13 +362,16 @@ export default {
                 h('h2', { class: 'conn-name' }, 'Telegram'),
                 h('p', { class: 'row-sub' }, 'Send short alerts to family chats.')),
               h('div', { 'data-region': 'tg-status' }, telegramStatus(state))),
+            h('div', { 'data-region': 'tg-mode' }, telegramMode(state)),
             tgToken,
             h('div', { class: 'conn-actions' },
               Button({ label: 'Save token', variant: 'outline', size: 'sm', onClick: (e) => saveTelegram(e.currentTarget.closest('.connections-page')) }),
               Button({ label: 'Retry now', variant: 'outline', size: 'sm', onClick: (e) => retryTelegram(e.currentTarget.closest('.connections-page')) }),
               Button({ label: 'Remove key', variant: 'outline', size: 'sm', onClick: (e) => removeTelegram(e.currentTarget.closest('.connections-page')) }),
-              Button({ label: 'Get pairing code', variant: 'outline', size: 'sm', onClick: (e) => getPairingCode(e.currentTarget.closest('.connections-page')) })),
-            h('div', { 'data-region': 'tg-pair' }, telegramPair())),
+              Button({ label: 'Get pairing code', variant: 'outline', size: 'sm', onClick: (e) => getPairingCode(e.currentTarget.closest('.connections-page')) }),
+              Button({ label: 'Send test message', variant: 'outline', size: 'sm', onClick: (e) => testTelegram(e.currentTarget.closest('.connections-page')) })),
+            h('div', { 'data-region': 'tg-pair' }, telegramPair()),
+            h('div', { 'data-region': 'tg-test' }, telegramTestLine())),
 
           h('section', { class: 'conn-card' },
             h('div', { class: 'conn-head' },

@@ -243,7 +243,7 @@ const S = {
   alerts,
   audit: [],
   connections: {
-    telegram: { state: 'connected', connected: true, paired: 3, bot: 'beacon_family_bot', saved: true, hint: 'Saved (ends ...demo)' },
+    telegram: { mode: 'relay', state: 'connected', connected: true, paired: 3, bot: 'beacon_family_bot', saved: true, hint: 'Saved (ends ...demo)', chats: [{ id: 1, name: 'Family' }, { id: 2, name: 'Maa and Papa' }, { id: 3, name: 'Dadi' }] },
     beacon: { paired: 3 },
     brain: { kind: 'claude', ok: true },
     haiku: true,
@@ -562,6 +562,11 @@ on('DELETE', '/api/telegram/token', () => {
   return { telegram: S.connections.telegram };
 });
 on('POST', '/api/telegram/pair', () => ({ code: 'LION-42', bot: 'beacon_family_bot' }));
+on('PUT', '/api/telegram/mode', (_, b) => {
+  S.connections.telegram = { ...S.connections.telegram, mode: b.mode === 'relay' ? 'relay' : 'direct' };
+  return { telegram: S.connections.telegram };
+});
+on('POST', '/api/telegram/test', () => ({ ok: true, note: 'Sent to your paired chats.' }));
 on('POST', '/api/beacon/pair', () => ({ code: 'PAIR-31', expiresAt: now() + 10 * MIN, qr: qrDataUrl('PAIR-31') }));
 on('POST', '/api/brain', (_, b) => {
   S.connections.brain = { kind: b.kind || 'none', ok: true };
