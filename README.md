@@ -1,5 +1,7 @@
 # Beacon
 
+#inae project 
+
 One community app for disasters: **before** (preparedness), **during** (response) and **after** (recovery).
 It replaces the pile of separate apps people juggle in a crisis (alerts, maps, news, chat, first aid, family tracking) and
 **keeps working with no internet**.
