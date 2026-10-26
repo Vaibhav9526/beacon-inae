@@ -41,9 +41,11 @@ interface Sent {
 }
 
 function setup(over: Partial<GatewayOptions> & { file?: string } = {}) {
+  const clock = { t: 1_700_000_000_000 };
   const gk = newGroupKey();
   const sent: Sent[] = [];
   const telegram: string[] = [];
+  const telegramOpts: Array<{ html?: boolean } | undefined> = [];
   const { members } = family();
   const opts: GatewayOptions = {
     members,
@@ -51,9 +53,11 @@ function setup(over: Partial<GatewayOptions> & { file?: string } = {}) {
     sendToPhone: async (deviceId, blobs) => {
       sent.push({ deviceId, blobs });
     },
-    sendTelegram: async (text) => {
+    sendTelegram: async (text, o) => {
       telegram.push(text);
+      telegramOpts.push(o);
     },
+    now: () => clock.t,
     ...over,
   };
   const file = over.file ?? join(dir(), 'gateway.json');
@@ -63,7 +67,7 @@ function setup(over: Partial<GatewayOptions> & { file?: string } = {}) {
     sent
       .filter((s) => s.deviceId === deviceId)
       .flatMap((s) => s.blobs.map((b) => decodeWire(b, gk) as Extract<WireMessage, { t: 'feed' }>).flatMap((m) => m.items));
-  return { gw, gk, sent, telegram, received, members };
+  return { gw, gk, sent, telegram, telegramOpts, received, members, clock };
 }
 
 test('defaultRoutes: urgent to all phones, news quiet, health to adults only', () => {
@@ -166,7 +170,10 @@ test('phones: none with telegram reaches Telegram only', async () => {
   const r = await s.gw.dispatch([item('t1', { severity: 'severe', title: 'Flood' })]);
   assert.equal(s.sent.length, 0);
   assert.equal(r.delivered, 1, 'Telegram counts as delivered');
-  assert.deepEqual(s.telegram, ['News: Flood']);
+  assert.equal(s.telegram.length, 1);
+  assert.match(s.telegram[0]!, /^<b>Flood<\/b>/, 'the big formatted post, not the short line');
+  assert.match(s.telegram[0]!, /Sent by Beacon Hub/);
+  assert.deepEqual(s.telegramOpts[0], { html: true });
 });
 
 test('telegram: sent once per item, only at warning or above, and only when the route asks', async () => {
@@ -176,7 +183,8 @@ test('telegram: sent once per item, only at warning or above, and only when the 
     { id: 'b', name: 'B', enabled: true, match: {}, to: { phones: 'none', telegram: true } },
   ]);
   await s.gw.dispatch([item('i1', { severity: 'info' }), item('w1', { severity: 'warning', title: 'Wind' })]);
-  assert.deepEqual(s.telegram, ['News: Wind'], 'info is not sent; the warning is sent once even though two routes match');
+  assert.equal(s.telegram.length, 1, 'info is not sent; the warning is sent once even though two routes match');
+  assert.match(s.telegram[0]!, /<b>Wind<\/b>/);
 
   const s2 = setup();
   s2.gw.setRoutes([{ id: 'quiet', name: 'Quiet', enabled: true, match: {}, to: { phones: 'all' } }]);
@@ -324,4 +332,173 @@ test('setRoutes cleans its input and rejects bad input without changing the rout
   assert.deepEqual(s.gw.routes().map((r) => r.id), ['keep'], 'routes were not replaced by the bad input');
   s.gw.setRoutes([{ id: 'x', match: { kinds: ['nope'] } }]);
   assert.deepEqual(s.gw.routes()[0]!.match, { kinds: [] });
+});
+
+/* ---------- digest routes ---------- */
+
+const MIN = 60_000;
+const digestRoute = (over: Partial<GatewayRoute> = {}): GatewayRoute => ({
+  id: 'dg',
+  name: 'Weather digest',
+  enabled: true,
+  match: { kinds: ['weather', 'wind'] },
+  to: { phones: 'all', roles: ['adult'], telegram: true },
+  deliver: { mode: 'digest', everyMin: 30 },
+  ...over,
+});
+
+test('cleanRoutes: deliver is validated, clamped to 5..1440 and defaults to 60', () => {
+  const out = cleanRoutes([
+    { id: 'a', deliver: { mode: 'digest', everyMin: 15 } },
+    { id: 'b', deliver: { mode: 'digest', everyMin: 1 } },
+    { id: 'c', deliver: { mode: 'digest', everyMin: 99999 } },
+    { id: 'd', deliver: { mode: 'digest' } },
+    { id: 'e', deliver: { mode: 'digest', everyMin: 'soon' } },
+    { id: 'f', deliver: { mode: 'weekly' } },
+    { id: 'g', deliver: { mode: 'instant', everyMin: 30 } },
+    { id: 'h', deliver: 'digest' },
+    { id: 'i', deliver: { mode: 'digest', everyMin: 12.6 } },
+  ]);
+  const d = Object.fromEntries(out.map((r) => [r.id, r.deliver]));
+  assert.deepEqual(d.a, { mode: 'digest', everyMin: 15 });
+  assert.deepEqual(d.b, { mode: 'digest', everyMin: 5 });
+  assert.deepEqual(d.c, { mode: 'digest', everyMin: 1440 });
+  assert.deepEqual(d.d, { mode: 'digest', everyMin: 60 });
+  assert.deepEqual(d.e, { mode: 'digest', everyMin: 60 });
+  assert.equal(d.f, undefined);
+  assert.deepEqual(d.g, { mode: 'instant' });
+  assert.equal(d.h, undefined);
+  assert.deepEqual(d.i, { mode: 'digest', everyMin: 13 });
+});
+
+test('digest: matched items are queued, not sent; flush waits for the period', async () => {
+  const s = setup();
+  s.gw.setRoutes([digestRoute()]);
+  const r = await s.gw.dispatch([item('w1', { kind: 'weather', severity: 'info', title: 'Warm', data: { temp_c: 31 } }), item('w2', { kind: 'wind', severity: 'watch', title: 'Breezy' })]);
+  assert.equal(r.delivered, 0);
+  assert.equal(r.skipped, 0);
+  assert.equal(r.queued, 2);
+  assert.equal(s.sent.length, 0);
+  assert.equal(s.telegram.length, 0);
+  assert.deepEqual(s.gw.digestStatus().map((d) => [d.routeId, d.queued, d.everyMin]), [['dg', 2, 30]]);
+  assert.equal(s.gw.digestStatus()[0]!.nextAt, s.clock.t + 30 * MIN);
+  await s.gw.dispatch([item('w1', { kind: 'weather' })]);
+  assert.equal(s.gw.digestStatus()[0]!.queued, 2, 'a seen id is not queued twice');
+
+  s.clock.t += 29 * MIN;
+  assert.deepEqual((await s.gw.flushDigests(s.clock.t)).flushed, [], 'not due yet');
+  s.clock.t += 2 * MIN;
+  const f = await s.gw.flushDigests(s.clock.t);
+  assert.deepEqual(f.flushed, [{ routeId: 'dg', items: 2, phones: 1, telegram: true }]);
+  const got = s.received('phone-adult');
+  assert.equal(got.length, 1, 'one combined item');
+  assert.equal(got[0]!.kind, 'weather');
+  assert.ok(got[0]!.tags.includes('digest'));
+  assert.equal(s.received('phone-elder').length, 0);
+  assert.ok(s.telegram.length >= 1);
+  assert.match(s.telegram[0]!, /Next update in 30 min/);
+  assert.deepEqual(s.telegramOpts[0], { html: true });
+  assert.equal(s.gw.digestStatus()[0]!.queued, 0);
+  assert.equal(s.gw.digestStatus()[0]!.lastFlush, s.clock.t);
+});
+
+test('digest: an empty queue sends nothing, even when forced', async () => {
+  const s = setup();
+  s.gw.setRoutes([digestRoute()]);
+  assert.deepEqual((await s.gw.flushDigests(s.clock.t + 999 * MIN, { force: true })).flushed, []);
+  assert.equal(s.sent.length, 0);
+  assert.equal(s.telegram.length, 0);
+});
+
+test('digest: force flushes before the period, and routeId limits it to one route', async () => {
+  const s = setup();
+  s.gw.setRoutes([digestRoute({ continue: true }), digestRoute({ id: 'dg2', name: 'Other', to: { phones: 'all', roles: ['elder'] } })]);
+  await s.gw.dispatch([item('w1', { kind: 'weather', title: 'Warm' })]);
+  const one = await s.gw.flushDigests(s.clock.t, { force: true, routeId: 'dg2' });
+  assert.deepEqual(one.flushed.map((x) => x.routeId), ['dg2']);
+  assert.equal(s.received('phone-elder').length, 1);
+  assert.equal(s.received('phone-adult').length, 0);
+  const rest = await s.gw.flushDigests(s.clock.t, { force: true });
+  assert.deepEqual(rest.flushed.map((x) => x.routeId), ['dg']);
+});
+
+test('digest: a severe item is also sent immediately, and still appears in the digest', async () => {
+  const s = setup();
+  s.gw.setRoutes([digestRoute()]);
+  const r = await s.gw.dispatch([item('calm', { kind: 'weather', severity: 'info', title: 'Calm' }), item('storm', { kind: 'wind', severity: 'severe', title: 'Storm now' })]);
+  assert.equal(r.delivered, 1, 'only the storm went out');
+  const now = s.received('phone-adult');
+  assert.deepEqual(now.map((i) => i.id), ['storm']);
+  assert.ok(now[0]!.tags.includes('notify'));
+  assert.equal(s.telegram.length, 1);
+  assert.match(s.telegram[0]!, /Storm now/);
+  assert.equal(s.gw.digestStatus()[0]!.queued, 2);
+  await s.gw.flushDigests(s.clock.t, { force: true });
+  const all = s.received('phone-adult');
+  assert.equal(all.length, 2);
+  assert.equal(all[1]!.severity, 'severe');
+  assert.ok(all[1]!.tags.includes('notify'), 'the digest notifies because it holds a severe item');
+});
+
+test('digest: calm digests still go to Telegram and do not notify', async () => {
+  const s = setup();
+  s.gw.setRoutes([digestRoute()]);
+  await s.gw.dispatch([item('c1', { kind: 'weather', severity: 'info', title: 'Calm day' })]);
+  const f = await s.gw.flushDigests(s.clock.t, { force: true });
+  assert.equal(f.flushed[0]!.telegram, true);
+  assert.ok(!s.received('phone-adult')[0]!.tags.includes('notify'));
+});
+
+test('digest: queue keeps the newest 40, drops items older than 24 h, and survives a reload', async () => {
+  const file = join(dir(), 'gateway.json');
+  const a = setup({ file });
+  a.gw.setRoutes([digestRoute({ to: { phones: 'all', roles: ['adult'] } })]);
+  await a.gw.dispatch(Array.from({ length: 45 }, (_, i) => item(`q${i}`, { kind: 'weather', title: `T${i}` })));
+  assert.equal(a.gw.digestStatus()[0]!.queued, 40);
+
+  const b = setup({ file, now: () => a.clock.t });
+  assert.equal(b.gw.digestStatus()[0]!.queued, 40, 'queue persisted');
+  a.clock.t += 25 * 60 * MIN;
+  assert.equal(b.gw.digestStatus()[0]!.queued, 0, 'older than 24 h');
+  assert.deepEqual((await b.gw.flushDigests(a.clock.t, { force: true })).flushed, []);
+  await b.gw.dispatch([item('fresh', { kind: 'weather', title: 'Fresh' })]);
+  assert.equal(b.gw.digestStatus()[0]!.queued, 1);
+});
+
+test('digest: failed delivery keeps the queue for the next tick', async () => {
+  let fail = true;
+  const s = setup({
+    sendToPhone: async () => {
+      if (fail) throw new Error('relay down');
+    },
+  });
+  s.gw.setRoutes([digestRoute({ to: { phones: 'all' } })]);
+  await s.gw.dispatch([item('w1', { kind: 'weather' })]);
+  assert.deepEqual((await s.gw.flushDigests(s.clock.t, { force: true })).flushed, []);
+  assert.equal(s.gw.digestStatus()[0]!.queued, 1);
+  fail = false;
+  assert.equal((await s.gw.flushDigests(s.clock.t, { force: true })).flushed.length, 1);
+  assert.equal(s.gw.digestStatus()[0]!.queued, 0);
+});
+
+test('digest: leaving digest mode drops its queue; preview reports mode and everyMin', async () => {
+  const s = setup();
+  s.gw.setRoutes([digestRoute()]);
+  await s.gw.dispatch([item('w1', { kind: 'weather' })]);
+  const p = s.gw.preview({ kind: 'weather', severity: 'info' });
+  assert.equal(p[0]!.mode, 'digest');
+  assert.equal(p[0]!.everyMin, 30);
+  assert.equal(p[0]!.telegram, true);
+  s.gw.setRoutes([digestRoute({ deliver: { mode: 'instant' } })]);
+  assert.deepEqual(s.gw.digestStatus(), []);
+  assert.equal(s.gw.preview({ kind: 'weather' })[0]!.mode, 'instant');
+});
+
+test('a digest route with continue lets an instant route below it still send', async () => {
+  const s = setup();
+  s.gw.setRoutes([digestRoute({ continue: true }), { id: 'now', name: 'Now', enabled: true, match: {}, to: { phones: 'all', roles: ['child'] } }]);
+  await s.gw.dispatch([item('w1', { kind: 'weather' })]);
+  assert.equal(s.received('phone-kid').length, 1);
+  assert.equal(s.received('phone-adult').length, 0);
+  assert.equal(s.gw.digestStatus()[0]!.queued, 1);
 });

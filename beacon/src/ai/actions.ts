@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { useSettings } from '../state/settings';
 import { call112, sendSafeNow, sendSosNow } from '../services/sos';
+import { SCREENS } from './intents';
 import type { Action } from './tools';
 
 /** Carry out what the router decided. Destructive or outward-facing actions (SOS) are only run from an explicit tap. */
@@ -32,6 +33,23 @@ export async function runAction(a: Action): Promise<string | null> {
     case 'chat':
       router.navigate('/adult/community' as never);
       return null;
+    case 'screen': {
+      const info = SCREENS[a.id];
+      if (info) router.navigate(info.route as never);
+      return null;
+    }
+    case 'drill':
+      // opens the drill screen only; the drill itself (and anything it broadcasts) starts from a tap there
+      router.navigate({ pathname: '/familydrill', params: { scenario: a.scenario } } as never);
+      return null;
+    case 'road':
+      // opens the report sheet only; nothing is sent by voice
+      router.navigate({ pathname: '/road', params: { status: a.status } } as never);
+      return null;
+    case 'lifeboat':
+      // never toggles silently: the person flips the switch on the lifeboat screen
+      router.navigate('/lifeboat' as never);
+      return null;
     case 'settings':
       if (a.setting === 'hindi') s.set({ lang: 'hi' });
       else if (a.setting === 'english') s.set({ lang: 'en' });
@@ -44,7 +62,9 @@ export async function runAction(a: Action): Promise<string | null> {
   }
 }
 
-/** Voice commands may change settings or navigate, but never send an SOS by themselves: that needs the on-screen button. */
+/** Voice commands may change settings or navigate, but never send an SOS by themselves: that needs the on-screen button or an explicit Yes on the confirm card. */
 export function allowedByVoice(a: Action): boolean {
   return a.type !== 'sos';
 }
+
+export { isNavigation, needsConfirmation } from './tools';

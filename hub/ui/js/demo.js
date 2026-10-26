@@ -222,6 +222,10 @@ const nodeKinds = [
   kind('quake', 'Earthquakes', 'Recent quakes within a radius.', true, [f('radiusKm', 'Radius (km)', 'number'), f('minMag', 'Minimum magnitude', 'number')]),
   kind('cap', 'Official alerts (CAP)', 'Government alert feed.', true, [f('url', 'Feed URL', 'text')]),
   kind('mcp-tool', 'MCP tool', 'Calls a tool on an MCP server.', true, [f('server', 'Server', 'select', { options: ['Weather tools', 'Local files'] }), f('tool', 'Tool', 'text'), f('args', 'Arguments', 'json')]),
+  kind('owm-current', 'OpenWeather now', 'Current weather for the place. Needs your OpenWeather key.', true, [f('part', 'What to show', 'select', { options: ['all', 'wind', 'rain', 'temperature', 'air', 'alerts'] })]),
+  kind('owm-forecast', 'OpenWeather forecast', 'The next 24 hours in 3 hour steps.', true, [f('part', 'What to show', 'select', { options: ['all', 'wind', 'rain', 'temperature', 'air', 'alerts'] })]),
+  kind('owm-air', 'OpenWeather air quality', 'Air index with PM2.5, PM10 and gases.', true, [f('part', 'What to show', 'select', { options: ['all', 'wind', 'rain', 'temperature', 'air', 'alerts'] })]),
+  kind('owm-onecall', 'OpenWeather One Call', 'Alerts, UV and a 48 hour outlook. Needs the One Call by Call subscription.', true, [f('part', 'What to show', 'select', { options: ['all', 'wind', 'rain', 'temperature', 'air', 'alerts'] })]),
   kind('keyword-filter', 'Keyword filter', 'Keeps items with these words.', false, [f('words', 'Words', 'list'), f('mode', 'Match', 'select', { options: ['any', 'all'] })]),
   kind('threshold', 'Threshold', 'Passes items when a reading crosses a value.', false, [f('metric', 'Reading', 'text'), f('op', 'Compare', 'select', { options: ['>', '>=', '<', '<='] }), f('value', 'Value', 'number')]),
   kind('summarize', 'Summary', 'Shortens the text to a few words.', false, [f('words', 'Words', 'number')]),
@@ -242,7 +246,8 @@ const S = {
     telegram: { connected: true, paired: 3, bot: 'beacon_family_bot' },
     beacon: { paired: 3 },
     brain: { kind: 'claude', ok: true },
-    haiku: true
+    haiku: true,
+    openWeather: { hasKey: false }
   },
   pending: params.get('pending') === '1'
     ? { id: 'p1', alertId: 'al3', text: 'Maa heart rate 118. Please check on her now.', channels: ['telegram', 'beacon'] }
@@ -265,7 +270,7 @@ const S = {
     ],
     allowAdultAsks: true
   },
-  gateway: { routes },
+  gateway: { routes, digests: [{ routeId: 'urgent', name: 'Everything urgent', everyMin: 60, queued: 3, nextAt: now() + 12 * MIN, lastFlush: now() - 48 * MIN }] },
   mcp: { servers: mcpServers, status: mcpStatus, tools: mcpTools },
   nodeKinds
 };
@@ -427,6 +432,16 @@ on('POST', '/api/gateway/preview', () => ({
   }))
 }));
 
+on('POST', '/api/gateway/flush', (_, b) => {
+  const d = (S.gateway.digests || []).find((x) => x.routeId === b.routeId);
+  if (!d || !d.queued) return { flushed: [] };
+  const items = d.queued;
+  d.queued = 0;
+  d.lastFlush = now();
+  d.nextAt = now() + d.everyMin * MIN;
+  return { flushed: [{ routeId: d.routeId, items, phones: S.group.members.filter((m) => m.deviceId).length, telegram: false }] };
+});
+
 on('POST', '/api/gateway/send-test', () => ({ delivered: S.group.members.filter((m) => m.deviceId).length }));
 
 on('POST', '/api/members', (_, b) => {
@@ -484,9 +499,14 @@ on('POST', '/api/asks/:id', (p, b) => {
 });
 
 on('PUT', '/api/settings', (_, b) => {
-  S.group.allowAdultAsks = !!b.allowAdultAsks;
-  return { allowAdultAsks: S.group.allowAdultAsks };
+  if (typeof b.allowAdultAsks === 'boolean') S.group.allowAdultAsks = b.allowAdultAsks;
+  if (b.openWeatherKey !== undefined) S.connections.openWeather = { hasKey: String(b.openWeatherKey).trim() !== '' };
+  return { allowAdultAsks: S.group.allowAdultAsks, openWeather: S.connections.openWeather };
 });
+
+on('POST', '/api/owm/test', () => (S.connections.openWeather.hasKey
+  ? { ok: true, ms: 214 }
+  : { ok: false, ms: 0, error: 'Add your OpenWeather key in Connections' }));
 
 on('POST', '/api/mcp', (_, b) => {
   if (!b.name) fail('Give the server a name');

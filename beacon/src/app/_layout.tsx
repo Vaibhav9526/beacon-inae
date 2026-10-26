@@ -18,6 +18,7 @@ import { startFamilyPing, startGateway, stopFamilyPing } from '../services/gatew
 import { startHubInbox } from '../services/hub';
 import { startLifeboatWatch } from '../services/lifeboat';
 import { useMesh } from '../services/mesh';
+import { useNotificationRouting } from '../services/notificationRouting';
 import { useQuakeService } from '../services/quakeService';
 import { useSettings } from '../state/settings';
 import { usePalette } from '../theme';
@@ -63,6 +64,8 @@ export default function RootLayout() {
 
   // Hook: runs the shake watch only while its switch is on and the mesh is running (off by default).
   useQuakeService();
+  // Hook: routes a tap on a notification to its detail page.
+  useNotificationRouting();
 
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: p.bg }}>

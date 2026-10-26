@@ -5,7 +5,7 @@ import { needleStatus, needleSupported, startNeedle } from '../ai/needle';
 import { DISCLAIMER } from '../kb';
 import { useLang, useT } from '../i18n';
 import { cloud, cloudConfigured } from '../services/cloud';
-import { type VoiceRole, useEleven } from '../services/elevenlabs';
+import { resetTtsStatus, ttsStatus, type VoiceRole, useEleven } from '../services/elevenlabs';
 import { speak } from '../services/speech';
 import { setLifeboat } from '../services/lifeboat';
 import { useMesh } from '../services/mesh';
@@ -111,6 +111,7 @@ export function SettingsView() {
   const [key, setKey] = useState(s.serverKey);
   const [xi, setXi] = useState('');
   const [xiMsg, setXiMsg] = useState('');
+  const [voiceMsg, setVoiceMsg] = useState('');
   const [test, setTest] = useState('');
   const [vision, setVision] = useState('');
   const v = voiceSupported() ? voiceStatus() : null;
@@ -139,10 +140,32 @@ export function SettingsView() {
     setXiMsg('…');
     try {
       const r = await eleven.save(xi);
-      setXiMsg(r.ok ? 'saved' : (r.error ?? 'failed'));
-      if (r.ok) setXi('');
+      if (r.ok) {
+        setXi('');
+        setXiMsg(
+          r.voicesListed === false
+            ? 'Key saved. Speech works. (Your key cannot list voices, so default voices are used.) / कुंजी सेव हो गई। बोलना काम करता है। (आपकी कुंजी आवाज़ों की सूची नहीं देख सकती, इसलिए डिफ़ॉल्ट आवाज़ें उपयोग होंगी।)'
+            : 'Key saved. Speech works. / कुंजी सेव हो गई। बोलना काम करता है।',
+        );
+      } else {
+        setXiMsg(`Key not saved: ${r.error ?? 'failed'} / कुंजी सेव नहीं हुई`);
+      }
     } catch (e) {
-      setXiMsg(String((e as Error).message ?? e));
+      setXiMsg(`Key not saved: ${(e as Error).message ?? e} / कुंजी सेव नहीं हुई`);
+    }
+  };
+
+  const testVoiceXi = async () => {
+    setVoiceMsg('…');
+    resetTtsStatus();
+    try {
+      await speak('Hello from Beacon', 'en', 'default');
+      const st = ttsStatus();
+      if (!st) setVoiceMsg('Speech did not start, the phone voice was used. / आवाज़ शुरू नहीं हुई');
+      else if (st.ok) setVoiceMsg('It worked. / काम कर गया');
+      else setVoiceMsg(`${st.reason ?? 'ElevenLabs failed'}, the phone voice was used. / आवाज़ नहीं चली, फ़ोन की आवाज़ उपयोग हुई`);
+    } catch (e) {
+      setVoiceMsg(`${(e as Error).message ?? e} / आवाज़ नहीं चली`);
     }
   };
 
@@ -197,6 +220,24 @@ export function SettingsView() {
                 <Btn size="sm" kind="secondary" icon="speaker" label={eleven.voices[r]?.name ?? '—'} onPress={() => void speak(lang === 'hi' ? 'नमस्ते, मैं आपकी मदद के लिए यहाँ हूँ।' : 'Hello, I am here to help.', lang, r)} />
               </Row>
             ))}
+            <Row>
+              <Btn size="sm" kind="secondary" icon="speaker" label="Test voice" onPress={() => void testVoiceXi()} />
+              {voiceMsg ? (
+                <Txt size={12} style={{ opacity: 0.85, flexShrink: 1 }}>
+                  {voiceMsg}
+                </Txt>
+              ) : null}
+            </Row>
+            {xiMsg ? (
+              <Txt size={12} style={{ opacity: 0.85 }}>
+                {xiMsg}
+              </Txt>
+            ) : null}
+            {!eleven.voicesListed ? (
+              <Txt size={11.5} style={{ opacity: 0.8 }}>
+                Your key cannot list voices, so default voices are used. / आपकी कुंजी आवाज़ों की सूची नहीं देख सकती, इसलिए डिफ़ॉल्ट आवाज़ें उपयोग होंगी।
+              </Txt>
+            ) : null}
             <Btn size="sm" kind="ghost" label={t('remove')} onPress={() => void eleven.clear()} />
           </View>
         ) : (

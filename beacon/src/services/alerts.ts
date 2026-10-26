@@ -9,6 +9,7 @@ import { useSettings } from '../state/settings';
 import { type SignedAlert, cloud, cloudConfigured } from './cloud';
 import { getFix } from './location';
 import { useMesh } from './mesh';
+import { scheduleNotice } from './notificationRouting';
 
 export interface AlertItem extends AlertBody {
   /** official: signed by our server key, or fetched by this phone straight from the public source */
@@ -26,7 +27,6 @@ interface AlertsState {
 }
 
 const CACHE = 'beacon.alerts.v1';
-const notified = new Set<string>();
 
 async function loadCache(): Promise<AlertItem[]> {
   try {
@@ -50,19 +50,12 @@ function merge(a: AlertItem[], b: AlertItem[]): AlertItem[] {
   return [...map.values()].filter((x) => !x.expires || x.expires > Date.now()).sort((p, q) => rank[p.severity] - rank[q.severity] || q.seenAt - p.seenAt);
 }
 
+/** Warnings and severe alerts notify once each (scheduleNotice remembers ids). */
 async function notifyNew(items: AlertItem[]) {
-  if (Platform.OS === 'web') return;
+  const lang = useSettings.getState().lang;
   for (const a of items) {
-    if (notified.has(a.id) || (a.severity !== 'severe' && a.severity !== 'warning')) continue;
-    notified.add(a.id);
-    try {
-      await Notifications.scheduleNotificationAsync({
-        content: { title: a.title, body: a.body.slice(0, 180), data: { alertId: a.id }, sound: 'default' },
-        trigger: null,
-      });
-    } catch {
-      /* notifications are best effort */
-    }
+    if (a.severity !== 'severe' && a.severity !== 'warning') continue;
+    await scheduleNotice({ kind: 'alert', alert: a }, lang);
   }
 }
 

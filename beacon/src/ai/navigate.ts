@@ -5,6 +5,12 @@
 // are dropped, and what is left must equal a known alias exactly. Exact matching keeps "open map" -> map while
 // "I want to report a flood" does not get hijacked into a navigation.
 
+import { getDisaster, getGuide, pick } from '../kb';
+import type { Lang } from '../kb/types';
+import { SCREENS, addHints } from './intents';
+import { CONFIRM_BELOW, route, stripNegated, type NeedleEngine, type RouteResult } from './router';
+import { FIRST_AID_TOPICS, type Action, isNavigation, needsConfirmation } from './tools';
+
 export interface NavigationTarget {
   route: string;
   label: string;
@@ -48,25 +54,7 @@ interface Entry {
   label: string;
 }
 
-const ENTRIES: Entry[] = [
-  // Screens
-  { aliases: ['map', 'maps', 'nakshe', 'naksha', 'नक्शा', 'नक्शे', 'नक़्शा', 'नक़्शे', 'मानचित्र'], route: '/map', label: 'Opening map' },
-  { aliases: ['settings', 'setting', 'preferences', 'सेटिंग', 'सेटिंग्स', 'सेटींग'], route: '/settings', label: 'Opening settings' },
-  { aliases: ['go bag', 'gobag', 'emergency bag', 'गो बैग', 'गोबैग', 'इमरजेंसी बैग'], route: '/gobag', label: 'Opening go bag' },
-  { aliases: ['drill', 'drills', 'start drill', 'start drills', 'mock drill', 'practice', 'ड्रिल', 'अभ्यास', 'अभ्यास करो'], route: '/drills', label: 'Opening drills' },
-  { aliases: ['medical id', 'medical', 'medical card', 'medical info', 'मेडिकल', 'मेडिकल आईडी', 'मेडिकल कार्ड'], route: '/medical', label: 'Opening medical ID' },
-  { aliases: ['family', 'parivar', 'परिवार'], route: '/family', label: 'Opening family' },
-  { aliases: ['hub', 'हब'], route: '/hub', label: 'Opening hub' },
-  { aliases: ['report', 'report something', 'report incident', 'report problem', 'रिपोर्ट', 'शिकायत'], route: '/report/new', label: 'Opening report' },
-  { aliases: ['first aid', 'aid', 'प्राथमिक उपचार', 'फ़र्स्ट एड', 'फर्स्ट एड'], route: '/adult/aid', label: 'Opening first aid' },
-  { aliases: ['locate me', 'locate', 'mujhe dhundho', 'मुझे ढूंढो', 'मुझे ढूँढो'], route: '/locate', label: 'Opening locate me' },
-  { aliases: ['family drill', 'family drills', 'परिवार अभ्यास'], route: '/familydrill', label: 'Opening family drills' },
-  { aliases: ['lifeboat', 'lifeboat mode', 'लाइफबोट', 'लाइफ़बोट'], route: '/lifeboat', label: 'Opening lifeboat mode' },
-  { aliases: ['shake warning', 'shake alert', 'झटका चेतावनी'], route: '/quake', label: 'Opening shake warning' },
-  { aliases: ['find family', 'परिवार खोजो', 'परिवार ढूंढो'], route: '/findfamily', label: 'Opening find family' },
-  { aliases: ['road report', 'road reports', 'road status', 'सड़क रिपोर्ट'], route: '/road', label: 'Opening road reports' },
-  { aliases: ['household', 'household profile', 'घर की जानकारी'], route: '/household', label: 'Opening household' },
-
+const GUIDE_ENTRIES: Entry[] = [
   // First-aid guides (ids from src/kb/firstaid.ts)
   { aliases: ['bleeding', 'severe bleeding', 'खून बहना', 'खून'], route: '/guide/severe-bleeding', label: 'Opening bleeding guide' },
   { aliases: ['cpr', 'सीपीआर'], route: '/guide/cpr-adult', label: 'Opening CPR guide' },
@@ -89,6 +77,12 @@ const ENTRIES: Entry[] = [
   { aliases: ['tsunami', 'सुनामी'], route: '/disaster/tsunami', label: 'Opening tsunami guide' },
 ];
 
+// Screens come from the shared SCREENS table (src/ai/intents.ts); guides and disasters are listed above.
+const ENTRIES: Entry[] = [
+  ...Object.values(SCREENS).map((sc) => ({ aliases: sc.aliases, route: sc.route, label: `Opening ${sc.en}` })),
+  ...GUIDE_ENTRIES,
+];
+
 const INDEX = new Map<string, NavigationTarget>();
 for (const e of ENTRIES) {
   for (const alias of e.aliases) {
@@ -105,4 +99,265 @@ export function parseNavigation(text: string): NavigationTarget | null {
   if (typeof text !== 'string' || !text.trim()) return null;
   const hit = INDEX.get(core(text));
   return hit ? { route: hit.route, label: hit.label } : null;
+}
+
+/** Static (non-guide) routes this file can return. Each one must exist in SCREENS (checked in the tests). */
+export const NAVIGATION_ROUTES: string[] = [...new Set(ENTRIES.map((e) => e.route).filter((r) => !r.startsWith('/guide/') && !r.startsWith('/disaster/')))];
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Voice pipeline: emergencies -> exact phrases -> (on-device model) -> keyword guesses -> chip. Pure logic, no UI.
+// ---------------------------------------------------------------------------------------------------------------------
+
+export interface Choice {
+  action: Action;
+  label: string;
+}
+
+export type Decision =
+  /** Life-threatening words: open the guide at once and offer to call 112. Never waits for the model. */
+  | { kind: 'emergency'; guideId: string; label: string; say: string; callQuestion: string }
+  /** Safe to do now. `route` is set for exact-phrase screens, `action` for everything else. */
+  | { kind: 'run'; label: string; route?: string; action?: Action; undo: boolean; source: 'fast' | 'model' | 'keywords' }
+  /** Ask first: "Did you mean: X?" with Yes/No and up to two other guesses. */
+  | { kind: 'confirm'; question: string; primary: Choice; alternatives: Choice[]; source: 'model' | 'keywords' }
+  /** Nothing understood: offer the persona chat. */
+  | { kind: 'chip' };
+
+const L = (lang: Lang, en: string, hi: string) => (lang === 'hi' ? hi : en);
+
+const PLACE_NAMES: Record<string, [string, string]> = {
+  shelter: ['shelter', 'आश्रय'],
+  hospital: ['hospital', 'अस्पताल'],
+  water: ['drinking water', 'पीने का पानी'],
+  police: ['police station', 'पुलिस थाना'],
+  pharmacy: ['pharmacy', 'दवाई की दुकान'],
+};
+
+/** Short phrase for an action. `open` is the "Opening X" toast, `ask` is the "Did you mean: X?" wording. */
+export function describeAction(a: Action, lang: Lang = 'en'): { open: string; ask: string } {
+  const both = (name: string) => ({
+    open: L(lang, `Opening ${name}`, `${name} खोल रहा हूँ`),
+    ask: L(lang, `Open ${name}`, `${name} खोलें`),
+  });
+  switch (a.type) {
+    case 'screen': {
+      const s = SCREENS[a.id];
+      return both(L(lang, s?.en ?? a.id, s?.hi ?? a.id));
+    }
+    case 'guide':
+      return both(pick(getGuide(a.id)?.title ?? [a.id, a.id], lang));
+    case 'disaster':
+      return both(pick(getDisaster(a.id)?.title ?? [a.id, a.id], lang));
+    case 'map': {
+      const n = PLACE_NAMES[a.place] ?? [a.place, a.place];
+      return { open: L(lang, `Opening the nearest ${n[0]}`, `सबसे नज़दीकी ${n[1]} खोल रहा हूँ`), ask: L(lang, `Find the nearest ${n[0]}`, `सबसे नज़दीकी ${n[1]} ढूँढें`) };
+    }
+    case 'alerts':
+      return both(L(lang, 'alerts', 'अलर्ट'));
+    case 'chat':
+      return both(L(lang, 'community chat', 'समुदाय चैट'));
+    case 'lifeboat':
+      return both(L(lang, 'lifeboat mode', 'लाइफबोट'));
+    case 'sos':
+      return { open: L(lang, 'Sending SOS', 'SOS भेज रहा हूँ'), ask: L(lang, 'Send an SOS', 'SOS भेजें') };
+    case 'safe':
+      return { open: L(lang, 'Telling family you are safe', 'परिवार को बता रहा हूँ कि आप सुरक्षित हैं'), ask: L(lang, 'Tell family you are safe', 'परिवार को बताएँ कि आप सुरक्षित हैं') };
+    case 'call112':
+      return { open: L(lang, 'Calling 112', '112 मिला रहा हूँ'), ask: L(lang, 'Call 112', '112 पर कॉल करें') };
+    case 'drill':
+      return { open: L(lang, `Opening the ${a.scenario} drill`, `${a.scenario} ड्रिल खोल रहा हूँ`), ask: L(lang, `Start a ${a.scenario} drill`, `${a.scenario} ड्रिल शुरू करें`) };
+    case 'road':
+      return { open: L(lang, 'Opening road report', 'सड़क रिपोर्ट खोल रहा हूँ'), ask: L(lang, `Report a ${a.status} road`, `सड़क की रिपोर्ट करें: ${a.status}`) };
+    case 'settings':
+      return { open: L(lang, 'Setting changed', 'सेटिंग बदल दी'), ask: L(lang, `Change setting: ${a.setting.replace('_', ' ')}`, `सेटिंग बदलें: ${a.setting}`) };
+    default:
+      return { open: '', ask: '' };
+  }
+}
+
+// --- emergencies -----------------------------------------------------------------------------------------------------
+
+const rx = (...p: string[]) => new RegExp(p.join('|'), 'iu');
+
+// Matched on the text with negated clauses removed, so "he is not bleeding" never opens the bleeding guide.
+const EMERGENCIES: { topic: keyof typeof FIRST_AID_TOPICS; test: RegExp; raw?: boolean }[] = [
+  { topic: 'not_breathing', test: rx('\\bnot breathing\\b', "\\bisn'?t breathing\\b", '\\bstopped breathing\\b', '\\bno pulse\\b', '\\bcardiac arrest\\b', '\\bheart stopped\\b', 'साँस नहीं|सांस नहीं|साँस बंद|सांस बंद|साँस रुक|सांस रुक|sans nahi|saans nahi') },
+  { topic: 'chest_pain', test: rx('\\bheart attack\\b', '\\bchest pain\\b', '\\bpain in (my |his |her |the )?chest\\b', '\\bchest (hurts|is hurting|tight)', 'दिल का दौरा|हार्ट अटैक|सीने में दर्द|छाती में दर्द|seene mein dard|dil ka daura'), raw: true },
+  { topic: 'trapped', test: rx('\\btrapped\\b', '\\bstuck under\\b', '\\bburied\\b', '\\bunder the (rubble|debris)\\b', 'फ[ँं]स ?(गया|गई|गए|गयी|रहा|रही)|मलबे में|phans gaya|phas gaya|phans gayi'), raw: true },
+  { topic: 'bleeding', test: rx('\\bbleeding (badly|heavily|a lot|profusely|non ?stop)', "\\bwon'?t stop bleeding\\b", '\\bblood everywhere\\b', '\\blosing (a lot of )?blood\\b', 'बहुत खून|खून बह रहा|खून नहीं रुक|khoon bah raha|bahut khoon') },
+  { topic: 'snake_bite', test: rx('\\bsnake ?bite\\b', '\\bbitten by (a )?snake\\b', '\\bsnake (bit|bite)\\b', 'साँप ने काट|सांप ने काट|साँप काटा|सांप काटा|saanp ne kaat|saap ne kaat'), raw: true },
+  { topic: 'unconscious', test: rx('\\bunconscious\\b', '\\bpassed out\\b', '\\bnot responding\\b', 'बेहोश|behosh') },
+  { topic: 'choking', test: rx('\\bchoking\\b', '\\bchoked\\b', 'दम घुट|गले में अटक|gale mein atak') },
+  { topic: 'drowning', test: rx('\\bdrowning\\b', 'डूब रहा|डूब रही|doob raha|doob rahi'), raw: true },
+  { topic: 'stroke', test: rx('\\bhaving a stroke\\b', '\\bface (is )?drooping\\b', 'लकवा|lakwa') },
+  { topic: 'electric_shock', test: rx('\\belectric shock\\b', '\\belectrocuted\\b', 'करंट लग|current lag') },
+  { topic: 'poison', test: rx('\\bpoison(ed|ing)?\\b', 'ज़हर|जहर|zehar') },
+];
+
+/** Life-threatening wording -> the first-aid guide to open at once. Deterministic: this runs before the model. */
+export function detectEmergency(text: string): { topic: string; guideId: string } | null {
+  const raw = (text ?? '').normalize('NFC');
+  if (!raw.trim()) return null;
+  const kept = stripNegated(raw);
+  for (const e of EMERGENCIES) {
+    // the Hindi "not" (नहीं) sits in many positive sentences ("निकल नहीं पा रहा"), so these also test the full text
+    if (e.test.test(kept) || (e.raw && e.test.test(raw) && !/\b(not|no|never)\b/iu.test(raw))) {
+      const guideId = FIRST_AID_TOPICS[e.topic];
+      if (guideId) return { topic: e.topic, guideId };
+    }
+  }
+  return null;
+}
+
+// --- keyword guesses for screens (never run on their own, only offered) ------------------------------------------------
+
+const GUESS_SKIP = new Set(['home', 'more', 'privacy', 'update']);
+
+/** Screens whose alias appears somewhere in the text, best first. Used for "Did you mean" and when the model is off. */
+export function guessScreens(text: string): string[] {
+  const padded = ` ${normaliseSpeech(text)} `;
+  if (padded.trim() === '') return [];
+  const scored: [string, number][] = [];
+  for (const [id, s] of Object.entries(SCREENS)) {
+    if (GUESS_SKIP.has(id)) continue;
+    let best = 0;
+    for (const alias of s.aliases) {
+      const a = normaliseSpeech(alias);
+      if (a && padded.includes(` ${a} `)) best = Math.max(best, a.length + a.split(' ').length * 3);
+    }
+    if (best) scored.push([id, best]);
+  }
+  return scored.sort((x, y) => y[1] - x[1]).map(([id]) => id);
+}
+
+// --- the pipeline ----------------------------------------------------------------------------------------------------
+
+const dev = () => typeof __DEV__ !== 'undefined' && __DEV__;
+
+export interface InterpretOptions {
+  lang?: Lang;
+  /** How long the model gets before the keyword router answers instead. */
+  timeoutMs?: number;
+  /** Override the dev-only logging (tests). */
+  log?: boolean;
+}
+
+export const MODEL_TIMEOUT_MS = 4000;
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error('timeout')), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      },
+    );
+  });
+}
+
+const sameAction = (a: Action, b: Action) => JSON.stringify(a) === JSON.stringify(b);
+
+function toChoice(a: Action, lang: Lang): Choice {
+  return { action: a, label: describeAction(a, lang).ask };
+}
+
+function confirm(primary: Action, others: Action[], source: 'model' | 'keywords', lang: Lang): Decision {
+  const alts: Action[] = [];
+  for (const o of others) if (o.type !== 'none' && !sameAction(o, primary) && !alts.some((x) => sameAction(x, o))) alts.push(o);
+  const p = toChoice(primary, lang);
+  return {
+    kind: 'confirm',
+    question: L(lang, `Did you mean: ${p.label}?`, `क्या आपका मतलब था: ${p.label}?`),
+    primary: p,
+    alternatives: alts.slice(0, 2).map((a) => toChoice(a, lang)),
+    source,
+  };
+}
+
+const screenActions = (text: string): Action[] => guessScreens(text).map((id) => ({ type: 'screen', id }));
+
+/**
+ * One spoken or typed sentence -> what the app should do. Order: emergency words (instant, no model), exact phrases
+ * (instant, no model), the on-device model (4 s limit), keyword guesses, the Didi chip. Sending or calling anything is
+ * never decided by a guess: those always come back as `confirm`.
+ */
+export async function interpret(text: string, engine: NeedleEngine | null | undefined, opts: InterpretOptions = {}): Promise<Decision> {
+  const lang = opts.lang ?? 'en';
+  const log = opts.log ?? dev();
+  const say = (...args: unknown[]) => {
+    if (log) console.debug('[voice]', ...args);
+  };
+  const input = (text ?? '').trim();
+  if (!input) return { kind: 'chip' };
+
+  // 1. emergencies: deterministic, before anything else
+  const em = detectEmergency(input);
+  if (em) {
+    const title = pick(getGuide(em.guideId)?.title ?? [em.guideId, em.guideId], lang);
+    say('emergency', em);
+    return {
+      kind: 'emergency',
+      guideId: em.guideId,
+      label: title,
+      say: L(lang, `Call 112 now. Opening ${title}.`, `अभी 112 पर कॉल करें। ${title} खोल रहा हूँ।`),
+      callQuestion: L(lang, 'Call 112?', '112 पर कॉल करें?'),
+    };
+  }
+
+  // 2. exact phrases: instant, no model
+  const nav = parseNavigation(input);
+  if (nav) {
+    say('fast path', nav);
+    return { kind: 'run', label: nav.label, route: nav.route, undo: true, source: 'fast' };
+  }
+
+  // 3. explicit "call 112" / "I am safe" (keyword router, no model)
+  const kw = await route(input);
+  if ((kw.action.type === 'call112' || kw.action.type === 'safe') && kw.confidence >= CONFIRM_BELOW) {
+    return { kind: 'run', label: describeAction(kw.action, lang).open, action: kw.action, undo: false, source: 'keywords' };
+  }
+
+  // 4. the on-device model, with a time limit; any failure falls back to the keyword result
+  let r: RouteResult = kw;
+  if (engine) {
+    const logged: NeedleEngine = {
+      async complete(t) {
+        const hinted = addHints(t);
+        const out = await engine.complete(hinted);
+        say('model returned', { request: hinted, calls: out.calls, confidence: out.confidence });
+        return out;
+      },
+    };
+    try {
+      r = await withTimeout(route(input, logged), opts.timeoutMs ?? MODEL_TIMEOUT_MS);
+    } catch (e) {
+      say('model unavailable, using keywords:', String((e as Error)?.message ?? e));
+      r = kw;
+    }
+  }
+  const source: 'model' | 'keywords' = r.source === 'needle' ? 'model' : 'keywords';
+  const guesses = screenActions(input);
+
+  // unsure guide: offer the likely guides
+  if (r.ask && r.ask.length) {
+    const guides: Action[] = r.ask.map((id) => ({ type: 'guide', id }));
+    return confirm(guides[0], guides.slice(1), source, lang);
+  }
+
+  const a = r.action;
+  if (a.type === 'none') {
+    // keyword guesses at a screen are only ever offered, never opened
+    if (guesses.length) return confirm(guesses[0], guesses.slice(1), 'keywords', lang);
+    return { kind: 'chip' };
+  }
+
+  const others = [...(r.options ?? []), ...guesses];
+  if (needsConfirmation(a)) return confirm(a, others, source, lang);
+  if (r.confidence < CONFIRM_BELOW) return confirm(a, others, source, lang);
+  return { kind: 'run', label: describeAction(a, lang).open, action: a, undo: isNavigation(a), source: source === 'model' ? 'model' : 'keywords' };
 }

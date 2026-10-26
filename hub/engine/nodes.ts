@@ -4,6 +4,7 @@
 import { getAqi, getQuakes, getWeather } from './sources.ts';
 import { htmlToText, itemId, parseFeed, trimWords, wordCount } from './rss.ts';
 import { capToFeedItem, parseCapAlert } from './capParse.ts';
+import * as owm from './owm.ts';
 import type {
   Agent, FeedItem, FeedKind, Genre, Metrics, NodeKind, NodeRunResult, NodeSpec, Op, Place, Severity, SourceOptions,
 } from './types.ts';
@@ -16,6 +17,8 @@ export interface NodeContext {
   summarize?: (text: string) => Promise<string | null>;
   /** Readings the hub already has for this agent. When given, weather, aqi and quake nodes use them instead of fetching. */
   metricsFor?: (agent: Agent) => Promise<Metrics>;
+  /** The user's OpenWeather key (never logged or shown). */
+  owmKey?: string;
 }
 
 /** Most items one agent run hands on to the gateway. */
@@ -26,7 +29,7 @@ const DEFAULT_LIMIT = 8;
 const TIMEOUT_MS = 8000;
 const UA = 'BeaconHub/0.1 (community disaster app)';
 
-const SOURCE_KINDS: readonly NodeKind[] = ['rss', 'http-json', 'weather', 'aqi', 'quake', 'cap', 'mcp-tool'];
+const SOURCE_KINDS: readonly NodeKind[] = ['rss', 'http-json', 'weather', 'aqi', 'quake', 'cap', 'mcp-tool', 'owm-current', 'owm-forecast', 'owm-air', 'owm-onecall'];
 const OPS: readonly Op[] = ['>', '>=', '<', '<=', '==', '!='];
 const FEED_KINDS: readonly FeedKind[] = [
   'news', 'weather', 'wind', 'quake', 'flood', 'alert', 'health', 'supply', 'advisory', 'chat', 'custom',
@@ -338,6 +341,73 @@ async function runMcp(node: NodeSpec, agent: Agent, ctx: NodeContext): Promise<F
 }
 
 // ---------------------------------------------------------------------------
+// OpenWeather nodes
+
+/** GET one OpenWeather address and return its JSON. Errors are plain sentences and never contain the key. */
+export async function owmGet(url: string, ctx: NodeContext, oneCall = false): Promise<unknown> {
+  const key = ctx.owmKey;
+  let res: { ok: boolean; status?: number; json(): Promise<unknown> };
+  try {
+    res = ctx.fetch
+      ? await withTimeout(ctx.fetch(url))
+      : await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(TIMEOUT_MS) });
+  } catch (e) {
+    const m = owm.redactKey(message(e), key);
+    throw new Error(m === 'timeout' ? 'OpenWeather did not answer in time' : 'Could not reach OpenWeather');
+  }
+  const status = (res as { status?: number }).status;
+  if (!res.ok) {
+    if (status === 401) throw new Error(oneCall ? owm.MSG_401_ONECALL : owm.MSG_401);
+    if (status === 429) throw new Error(owm.MSG_429);
+    if (status === 404) throw new Error('OpenWeather could not find this place');
+    throw new Error(`OpenWeather answered with an error${status ? ` (${status})` : ''}`);
+  }
+  try {
+    return await res.json();
+  } catch {
+    throw new Error('OpenWeather sent an unreadable answer');
+  }
+}
+
+const OWM_PARTS = owm.OWM_PARTS as readonly string[];
+
+async function runOwm(kind: owm.OwmKind, node: NodeSpec, agent: Agent, ctx: NodeContext): Promise<FeedItem[]> {
+  const part = (OWM_PARTS.includes(node.config.part as string) ? node.config.part : 'all') as owm.OwmPart;
+  const place = agent.place;
+  if (!place || !Number.isFinite(place.lat) || !Number.isFinite(place.lon)) throw new Error('This agent has no place');
+  const at = now(ctx);
+  let drafts: owm.OwmDraft[];
+  if (ctx.offline) {
+    drafts = owm.sampleDrafts(kind, part, place.name, at);
+  } else {
+    const key = ctx.owmKey;
+    if (!key) throw new Error(owm.MSG_NO_KEY);
+    try {
+      if (kind === 'owm-current') {
+        drafts = owm.currentDrafts(owm.parseCurrent(await owmGet(owm.currentUrl(place.lat, place.lon, key), ctx)), part, place.name);
+      } else if (kind === 'owm-forecast') {
+        drafts = owm.forecastDrafts(owm.parseForecast(await owmGet(owm.forecastUrl(place.lat, place.lon, key), ctx)), part, place.name);
+      } else if (kind === 'owm-air') {
+        const now1 = owm.parseAir(await owmGet(owm.airUrl(place.lat, place.lon, key), ctx));
+        // the air forecast is a bonus; the current reading still counts if it fails
+        const later = await owmGet(owm.airForecastUrl(place.lat, place.lon, key), ctx).then(owm.parseAir).catch(() => []);
+        drafts = owm.airDrafts(now1, later, part, place.name);
+      } else {
+        drafts = owm.oneCallDrafts(owm.parseOneCall(await owmGet(owm.oneCallUrl(place.lat, place.lon, key), ctx, true)), part, place.name);
+      }
+    } catch (e) {
+      throw new Error(owm.redactKey(message(e), key));
+    }
+  }
+  return drafts.map((d) => {
+    const item = makeItem(agent, { nodeId: node.id, kind: d.kind, title: d.title, body: d.body, severity: d.severity, at: d.at || at, tags: d.tags, place: place.name, data: d.data });
+    item.id = owm.owmItemId(d.kind, place.name, node.id, d.slot, d.severity, d.at || at);
+    item.detail = d.detail.slice(0, 1500);
+    return item;
+  });
+}
+
+// ---------------------------------------------------------------------------
 // transform nodes
 
 function keywordFilter(node: NodeSpec, items: FeedItem[]): FeedItem[] {
@@ -422,6 +492,10 @@ const SOURCES: Partial<Record<NodeKind, (node: NodeSpec, agent: Agent, ctx: Node
   quake: runQuake,
   cap: runCap,
   'mcp-tool': runMcp,
+  'owm-current': (n, a, c) => runOwm('owm-current', n, a, c),
+  'owm-forecast': (n, a, c) => runOwm('owm-forecast', n, a, c),
+  'owm-air': (n, a, c) => runOwm('owm-air', n, a, c),
+  'owm-onecall': (n, a, c) => runOwm('owm-onecall', n, a, c),
 };
 
 /** Adds items whose id is not yet in the stream. */

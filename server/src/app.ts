@@ -9,6 +9,7 @@ import { HttpError, Router, reply, type Req } from './http.ts';
 import { type ServerKey, verifyDeviceRequest } from './keys.ts';
 import { clip60 } from './moderation.ts';
 import { MOD_HTML } from './modPage.ts';
+import { registerChat } from './chat.ts';
 import { RelayService } from './relay.ts';
 import { ReportService } from './reports.ts';
 
@@ -282,6 +283,8 @@ export function createApp(d: AppDeps) {
     d.db.prepare('UPDATE sos SET resolved=1 WHERE id=?').run(req.params.id);
     return { ok: true };
   });
+
+  registerChat(r, d.db, now, signed, mod);
 
   return r;
 }

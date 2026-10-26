@@ -5,7 +5,7 @@ import type { Alert, Channel } from './types.ts';
 /** A transport that can deliver a short text. Telegram and the Beacon push each implement this. */
 export interface Sender {
   channel: Channel;
-  send(text: string, alert: Alert): Promise<void>;
+  send(text: string, alert: Alert, opts?: { html?: boolean }): Promise<void>;
 }
 
 export interface AuditLine {
@@ -55,7 +55,7 @@ export class Outbox {
     this.allowed = o.allowed ?? new Set();
   }
 
-  async deliver(alert: Alert, text: string): Promise<Alert> {
+  async deliver(alert: Alert, text: string, opts?: { html?: boolean }): Promise<Alert> {
     const todo = alert.channels.filter((c) => this.o.senders.some((s) => s.channel === c));
     if (todo.length === 0) {
       return { ...alert, status: 'failed', note: 'No connected channel. Connect Telegram or pair the phone.' };
@@ -78,7 +78,7 @@ export class Outbox {
     for (const c of todo) {
       const s = this.o.senders.find((x) => x.channel === c)!;
       try {
-        await s.send(text, alert);
+        await s.send(text, alert, opts);
         this.o.audit.add({ alertId: alert.id, channel: c, event: 'sent', text });
       } catch (e) {
         failed++;

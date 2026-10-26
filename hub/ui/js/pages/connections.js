@@ -21,6 +21,7 @@ const tg = { pair: null };
 const phones = { qr: null };
 const brain = { pick: null };
 const relay = { check: null };
+const owm = { test: null, busy: false };
 
 /* ---------- status pieces ---------- */
 
@@ -75,6 +76,21 @@ function relayStatus() {
   if (!c) return null;
   return h('p', { class: 'conn-relay-result ' + (c.ok ? 'ok' : 'bad'), role: 'status' },
     c.ok ? 'Reachable. It answered in ' + c.ms + ' ms.' : 'Not reachable: ' + (c.error || 'unknown error') + '.');
+}
+
+function owmStatus(state) {
+  const has = !!(state.connections && state.connections.openWeather && state.connections.openWeather.hasKey);
+  const t = owm.test;
+  let tone = has ? 'ok' : 'muted';
+  let label = has ? 'Key saved' : 'No key yet';
+  let note = '';
+  if (owm.busy) { tone = 'muted'; label = 'Testing'; }
+  else if (t && t.ok) { tone = 'ok'; label = 'Working'; note = 'Answered in ' + t.ms + ' ms.'; }
+  else if (t && !t.ok) { tone = 'danger'; label = 'Not working'; note = t.error || 'unknown error'; }
+  return h('div', { class: 'conn-head-status' },
+    Dot({ state: tone === 'ok' ? 'ok' : tone === 'danger' ? 'bad' : 'asleep' }),
+    pill(tone, label),
+    note ? h('span', { class: 'row-sub', role: 'status' }, note) : null);
 }
 
 function brainStatus(state) {
@@ -152,6 +168,30 @@ async function saveBrain(root) {
   toast('Brain set to ' + (BRAIN_LABEL[kind] || kind) + '.', { kind: 'ok', title: 'Brain' });
 }
 
+async function saveOwm(root) {
+  const input = root.querySelector('#conn-owm-key');
+  const openWeatherKey = input ? input.value.trim() : '';
+  const res = await api.put('/api/settings', { openWeatherKey });
+  if (!res) return;
+  if (input) input.value = '';
+  owm.test = null;
+  if (res.openWeather && store.state && store.state.connections) store.state.connections.openWeather = res.openWeather;
+  paint(root);
+  toast(openWeatherKey ? 'OpenWeather key saved on this computer.' : 'OpenWeather key removed.', { kind: 'ok', title: 'OpenWeather' });
+}
+
+async function testOwm(root) {
+  const input = root.querySelector('#conn-owm-key');
+  const typed = input ? input.value.trim() : '';
+  if (typed) await saveOwm(root);
+  owm.busy = true;
+  paint(root);
+  const res = await api.post('/api/owm/test', {});
+  owm.busy = false;
+  owm.test = res || { ok: false, ms: 0, error: 'the hub could not run the test' };
+  paint(root);
+}
+
 /* ---------- regions ---------- */
 
 function paint(root) {
@@ -166,6 +206,7 @@ function paint(root) {
   set('phones-status', phonesStatus(state));
   set('phones-pair', phonesPair());
   set('relay-status', relayStatus());
+  set('owm-status', owmStatus(state));
   set('brain-status', brainStatus(state));
 }
 
@@ -246,6 +287,19 @@ export default {
               Button({ label: 'Save relay', variant: 'outline', size: 'sm', onClick: (e) => saveRelay(e.currentTarget.closest('.connections-page')) }),
               Button({ label: 'Check', variant: 'outline', size: 'sm', onClick: (e) => checkRelay(e.currentTarget.closest('.connections-page')) })),
             h('div', { 'data-region': 'relay-status' }, relayStatus())),
+
+          h('section', { class: 'conn-card' },
+            h('div', { class: 'conn-head' },
+              h('div', { class: 'conn-head-titles' },
+                h('h2', { class: 'conn-name' }, 'OpenWeather'),
+                h('p', { class: 'row-sub' }, 'Detailed weather, forecast and air quality for your agents.')),
+              h('div', { 'data-region': 'owm-status' }, owmStatus(state))),
+            Field({ label: 'API key', id: 'conn-owm-key', desc: 'Free key from openweathermap.org (API keys tab). New keys can take up to 2 hours to activate. The key stays on this computer.', children:
+              Input({ id: 'conn-owm-key', type: 'password', placeholder: (state.connections && state.connections.openWeather && state.connections.openWeather.hasKey) ? 'A key is saved. Paste a new one to replace it' : 'Paste your OpenWeather key', autocomplete: 'off' }) }),
+            h('div', { class: 'conn-actions' },
+              Button({ label: 'Save', variant: 'outline', size: 'sm', onClick: (e) => saveOwm(e.currentTarget.closest('.connections-page')) }),
+              Button({ label: 'Test', variant: 'outline', size: 'sm', onClick: (e) => testOwm(e.currentTarget.closest('.connections-page')) })),
+            h('p', { class: 'field-desc' }, 'Unlocks these nodes: OpenWeather now, OpenWeather forecast, OpenWeather air quality (all work with a free key) and OpenWeather One Call (alerts and UV, needs the separate One Call by Call subscription).')),
 
           h('section', { class: 'conn-card' },
             h('div', { class: 'conn-head' },

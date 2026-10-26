@@ -17,8 +17,8 @@ const GROUPS = ['disaster', 'help', 'medicine', 'child', 'prepare'];
 const LEVELS = ['starter', 'guardian', 'expert'];
 const NEEDS = ['health', 'telegram', 'phone'];
 
-test('there are 26 vault agents', () => {
-  assert.equal(TEMPLATES.length, 26);
+test('there are 29 vault agents', () => {
+  assert.equal(TEMPLATES.length, 29);
 });
 
 test('every template has non-empty vault text', () => {

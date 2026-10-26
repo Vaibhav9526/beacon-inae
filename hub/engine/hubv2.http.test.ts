@@ -63,7 +63,7 @@ test('GET /api/state needs the token and carries group, feed, gateway, mcp and n
     assert.ok(Array.isArray(st.mcp.servers) && Array.isArray(st.mcp.status) && Array.isArray(st.mcp.tools));
     // the node catalogue lists every kind the hub can run: rss, http-json, weather, aqi, quake, cap, mcp-tool,
     // keyword-filter, threshold, dedupe, summarize (11; the brief said 10)
-    assert.equal(st.nodeKinds.length, 11);
+    assert.equal(st.nodeKinds.length, 15); // plus the four OpenWeather nodes
     assert.ok(st.nodeKinds.some((k: { kind: string }) => k.kind === 'rss'));
   } finally {
     close();

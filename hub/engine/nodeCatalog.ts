@@ -19,6 +19,8 @@ export interface NodeKindInfo {
 
 const KINDS = ['news', 'weather', 'wind', 'quake', 'flood', 'alert', 'health', 'supply', 'advisory', 'custom'];
 
+const OWM_PART: NodeField = { key: 'part', label: 'What to show', type: 'select', options: ['all', 'wind', 'rain', 'temperature', 'air', 'alerts'] };
+
 /** What the UI shows when you add a node to an agent's path. */
 export const NODE_KINDS: NodeKindInfo[] = [
   {
@@ -83,6 +85,34 @@ export const NODE_KINDS: NodeKindInfo[] = [
       { key: 'args', label: 'Arguments (JSON)', type: 'json', placeholder: '{}' },
       { key: 'kind', label: 'Shows up as', type: 'select', options: KINDS },
     ],
+  },
+  {
+    kind: 'owm-current',
+    label: 'OpenWeather now',
+    description: 'Current temperature, wind, rain, pressure, visibility and sunrise for the agent’s place. Needs your free OpenWeather key (Connections).',
+    source: true,
+    fields: [OWM_PART],
+  },
+  {
+    kind: 'owm-forecast',
+    label: 'OpenWeather forecast',
+    description: 'The next 24 hours in 3 hour steps: lowest and highest temperature, rain chance, rain total and strongest gust. Needs your free OpenWeather key.',
+    source: true,
+    fields: [OWM_PART],
+  },
+  {
+    kind: 'owm-air',
+    label: 'OpenWeather air quality',
+    description: 'Air quality index (1 good to 5 very poor) with PM2.5, PM10, NO2, O3, SO2 and CO. Needs your free OpenWeather key.',
+    source: true,
+    fields: [OWM_PART],
+  },
+  {
+    kind: 'owm-onecall',
+    label: 'OpenWeather One Call',
+    description: 'Official weather alerts, UV index and a 48 hour outlook. Needs the One Call by Call subscription on your OpenWeather account (it includes 1,000 free calls a day); a key without it is rejected.',
+    source: true,
+    fields: [OWM_PART],
   },
   {
     kind: 'keyword-filter',

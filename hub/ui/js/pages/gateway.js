@@ -20,12 +20,31 @@ const ROLES = ['adult', 'elder', 'child'];
 const ROLE_LABEL = { adult: 'Adults', elder: 'Elders', child: 'Children' };
 const MIN_TABS = [{ id: 'any', label: 'Any level' }].concat(SEVS.map((s) => ({ id: s, label: severityLabel(s) })));
 const NOTIFY_TABS = SEVS.map((s) => ({ id: s, label: severityLabel(s) }));
+const DELIVER_TABS = [{ id: 'instant', label: 'Instant' }, { id: 'digest', label: 'Digest' }];
+const PERIODS = [[15, '15 min'], [30, '30 min'], [60, '1 hour'], [180, '3 hours'], [360, '6 hours'], [720, '12 hours'], [1440, '24 hours']];
+
+/** Short chip text for a route's delivery: "Instant" or "Every 1 h". */
+function deliverLabel(r) {
+  const d = r.deliver;
+  if (!d || d.mode !== 'digest') return 'Instant';
+  const n = d.everyMin || 60;
+  return 'Every ' + (n % 60 === 0 ? n / 60 + ' h' : n + ' min');
+}
+
+/** "Next in 12 min" / "Due now" / "Waiting for the first item". */
+function nextText(d, now) {
+  if (!d.nextAt) return 'Waiting for the first item';
+  const m = Math.ceil((d.nextAt - now) / 60000);
+  if (m <= 0) return d.queued ? 'Due now' : 'No items waiting';
+  return 'Next in ' + (m >= 120 ? Math.round(m / 60) + ' h' : m + ' min');
+}
 
 // gw.routes: the draft. gw.base: JSON of the last saved list. gw.seen: JSON of the last server list seen.
 const gw = {
   routes: [], base: '', seen: '', selected: null, initialised: false,
   probe: { kind: 'flood', severity: 'warning', agentId: '', tags: 'rain' },
-  probeResult: null
+  probeResult: null,
+  tgPreview: false
 };
 let root = null;
 let ctx = null;
@@ -159,6 +178,7 @@ function build() {
         h('div', { class: 'gw-layout' },
           listPanel(),
           gw.routes.length ? editorPanel(gw.routes.find((r) => r.id === gw.selected) || gw.routes[0]) : h('section', { class: 'gw-editor' }, EmptyState({ icon: 'gateway', title: 'No routes yet', text: 'Add a route to decide which items reach the phones.', compact: true }))),
+        digestPanel(state),
         tryPanel(state),
         recentPanel(state))));
   return page;
@@ -182,7 +202,8 @@ function routeRow(r, i) {
   const chips = [
     Chip({ label: m.kinds && m.kinds.length ? m.kinds.map((k) => KIND_LABEL[k] || k).join(', ') : 'Any kind', tone: 'outline' }),
     Chip({ label: m.minSeverity ? severityLabel(m.minSeverity) + ' and up' : 'Any level', tone: 'muted' }),
-    Chip({ label: describeTo(r.to), tone: r.to && r.to.phones === 'all' ? 'accent' : 'outline' })
+    Chip({ label: describeTo(r.to), tone: r.to && r.to.phones === 'all' ? 'accent' : 'outline' }),
+    Chip({ label: deliverLabel(r), tone: r.deliver && r.deliver.mode === 'digest' ? 'accent' : 'muted' })
   ];
   return h('div', { class: 'gw-row' + (on ? '' : ' paused') + (sel ? ' selected' : ''), role: 'listitem' },
     h('button', {
@@ -309,7 +330,114 @@ function editorPanel(r) {
         h('span', { class: 'gw-toggle-desc' }, 'Later routes also get the item, so one item can reach several groups.')),
       Switch({ checked: !!r.continue, label: 'Keep matching after this route', onChange: (v) => { r.continue = v; rebuild(); } })));
 
-  return h('section', { class: 'gw-editor', 'aria-label': 'Route editor' }, head, matchSec, recipSec, notifySec);
+  const digest = !!r.deliver && r.deliver.mode === 'digest';
+  const everyMin = (r.deliver && r.deliver.everyMin) || 60;
+  const periodOpts = PERIODS.some((p) => p[0] === everyMin) ? PERIODS : PERIODS.concat([[everyMin, everyMin + ' min']]);
+  const deliverSec = h('section', { class: 'gw-section' },
+    h('h3', { class: 'gw-h3' }, 'Delivery'),
+    labeled('When to send', Tabs({
+      label: 'When to send',
+      items: DELIVER_TABS,
+      value: digest ? 'digest' : 'instant',
+      onChange: (v) => { r.deliver = v === 'digest' ? { mode: 'digest', everyMin } : { mode: 'instant' }; rebuild(); }
+    }), digest
+      ? 'Matching items are collected and sent together as one update. Severe items still go out right away.'
+      : 'Each matching item is sent as soon as it arrives.'),
+    digest ? labeled('Send one update every', Select({
+      id: 'gw-every',
+      value: everyMin,
+      options: periodOpts,
+      onChange: (v) => { r.deliver = { mode: 'digest', everyMin: Number(v) }; rebuild(); }
+    })) : null,
+    digest ? h('div', { class: 'row-inline gw-actions' },
+      Button({ label: 'Send digest now', icon: 'send', variant: 'outline', size: 'sm', onClick: () => flushNow(r) }),
+      Button({ label: 'Preview Telegram post', icon: 'search', variant: 'outline', size: 'sm', onClick: () => { gw.tgPreview = !gw.tgPreview; rebuild(); } })) : null,
+    digest && gw.tgPreview ? telegramPreview(r) : null);
+
+  return h('section', { class: 'gw-editor', 'aria-label': 'Route editor' }, head, matchSec, recipSec, deliverSec, notifySec);
+}
+
+/** Sends the queued items of a saved digest route now. The endpoint is POST /api/gateway/flush. */
+async function flushNow(r) {
+  if (isDirty()) { toast('Save the routes first, then send the digest', { kind: 'info' }); return; }
+  try {
+    const out = await api.post('/api/gateway/flush', { routeId: r.id }, { throws: true });
+    const f = ((out && out.flushed) || []).find((x) => x.routeId === r.id);
+    toast(f ? 'Digest sent: ' + f.items + (f.items === 1 ? ' item' : ' items') : 'Nothing is waiting to be sent', { kind: f ? 'ok' : 'info' });
+  } catch (err) {
+    const msg = String(err && err.message || '');
+    toast(/404|not found/i.test(msg) ? 'This hub version cannot send digests yet. Update the hub.' : msg || 'Could not send the digest', { kind: 'err' });
+  }
+}
+
+/* ---------- Telegram preview (client side, structure only) ---------- */
+
+const SECTION_ORDER = ['Alerts', 'Weather now', 'Next 24 hours', 'Wind', 'Rain and flood', 'Air quality', 'Quakes', 'Other updates', 'News headlines'];
+const DATA_LABEL = {
+  temp_c: ['Temperature', ' C'], feels_like_c: ['Feels like', ' C'], humidity_pct: ['Humidity', '%'], wind_kmh: ['Wind', ' km/h'],
+  wind_gust_kmh: ['Gusts', ' km/h'], rain_mm_24h: ['Rain in 24 h', ' mm'], rain_mm_3h: ['Rain in 3 h', ' mm'], rain_mm_now: ['Rain now', ' mm'],
+  uv_index: ['UV index', ''], aqi: ['AQI', ''], pm25: ['PM2.5', ' ug/m3']
+};
+
+function sectionOf(it) {
+  const tags = it.tags || [];
+  if (it.kind === 'alert') return 'Alerts';
+  if (tags.includes('forecast')) return 'Next 24 hours';
+  if (it.kind === 'wind') return 'Wind';
+  if (it.kind === 'flood') return 'Rain and flood';
+  if (it.kind === 'quake') return 'Quakes';
+  if (it.kind === 'news') return 'News headlines';
+  if (it.data && ('aqi' in it.data || 'pm25' in it.data)) return 'Air quality';
+  if (it.kind === 'weather') return 'Weather now';
+  return 'Other updates';
+}
+
+function dataText(data) {
+  return Object.entries(data || {}).map(([k, v]) => {
+    const d = DATA_LABEL[k];
+    return d ? d[0] + ' ' + v + d[1] : k.replace(/_/g, ' ') + ' ' + v;
+  }).join(', ');
+}
+
+function telegramPreview(r) {
+  const feed = (ctx.state.feed || []).filter((it) => routeMatches(Object.assign({}, r, { enabled: true }), it)).slice(0, 8);
+  const items = feed.length ? feed : (ctx.state.feed || []).slice(0, 5);
+  const every = (r.deliver && r.deliver.everyMin) || 60;
+  const kids = [h('div', { class: 'gw-tg-title' }, r.name || 'Update'), h('div', { class: 'gw-tg-meta' }, new Date().toLocaleString())];
+  if (!items.length) kids.push(h('p', { class: 'gw-probe-text' }, 'No recent items to show yet.'));
+  for (const name of SECTION_ORDER) {
+    const group = items.filter((it) => sectionOf(it) === name).sort((a, b) => RANK[b.severity] - RANK[a.severity]);
+    if (!group.length) continue;
+    kids.push(h('div', { class: 'gw-tg-head' }, name));
+    for (const it of group) {
+      const nums = dataText(it.data);
+      const text = String(it.detail || it.body || '').slice(0, 600);
+      kids.push(h('div', { class: 'gw-tg-item' },
+        h('b', null, it.title), it.severity !== 'info' ? ' (' + severityLabel(it.severity) + ')' : '',
+        nums ? h('div', null, nums) : null,
+        text ? h('div', { class: 'gw-tg-text' }, text) : null));
+    }
+  }
+  kids.push(h('div', { class: 'gw-tg-meta' }, 'Sent by Beacon Hub. Next update in ' + every + ' min.'));
+  return h('div', { class: 'gw-tg', role: 'region', 'aria-label': 'Telegram post preview' },
+    h('p', { class: 'gw-probe-text' }, 'Preview only, built from your latest items. The real post is formatted by the hub.'), ...kids);
+}
+
+/* ---------- digest status ---------- */
+
+function digestPanel(state) {
+  const list = (state.gateway && state.gateway.digests) || [];
+  if (!list.length) return null;
+  const now = Date.now();
+  return h('section', { class: 'gw-panel', 'aria-labelledby': 'gw-digest-h' },
+    h('h2', { class: 'gw-h', id: 'gw-digest-h' }, 'Digest status'),
+    h('p', { class: 'gw-sub' }, 'Routes that send one update on a timer.'),
+    h('ul', { class: 'gw-feed' }, list.map((d) => h('li', { class: 'gw-feed-row gw-digest-row' },
+      Chip({ label: deliverLabel({ deliver: { mode: 'digest', everyMin: d.everyMin } }), tone: 'accent' }),
+      h('div', { class: 'gw-feed-text' },
+        h('div', { class: 'gw-feed-title' }, d.name),
+        h('div', { class: 'gw-feed-meta' }, d.queued + (d.queued === 1 ? ' item waiting' : ' items waiting') + ' · ' + nextText(d, now) + (d.lastFlush ? ' · last sent ' + relTime(d.lastFlush) : ''))),
+      Button({ label: 'Send digest now', icon: 'send', variant: 'outline', size: 'sm', disabled: isDirty(), onClick: () => flushNow({ id: d.routeId }) })))));
 }
 
 /** A text input that writes to the draft as you type and rebuilds (for the dirty mark) when it commits. */

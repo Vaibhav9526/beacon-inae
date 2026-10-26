@@ -13,7 +13,8 @@ import { McpClients } from './mcpClients.ts';
 import type { McpSpecInput } from './mcpClients.ts';
 import { Members } from './members.ts';
 import { cleanPipeline, NODE_KINDS } from './nodeCatalog.ts';
-import { runPipeline } from './nodes.ts';
+import { cleanOwmKey, currentUrl, redactKey } from './owm.ts';
+import { owmGet, runPipeline } from './nodes.ts';
 import { AuditLog, Outbox } from './outbox.ts';
 import type { Sender } from './outbox.ts';
 import { PERSONAS, personaById } from './personas.ts';
@@ -31,6 +32,7 @@ interface Config {
   telegram: TelegramState;
   telegramToken?: string;
   anthropicKey?: string;
+  openWeatherKey?: string;
   relayUrl: string;
   allowAdultAsks: boolean;
   /** newest inbox item already handled (ms) */
@@ -153,9 +155,9 @@ export class HubApp {
         for (const b of blobs) await this.link.sendToPhone(deviceId, b);
       },
       // Telegram copies of feed items still go through the first-send approval and the audit log
-      sendTelegram: async (text) => {
+      sendTelegram: async (text, o) => {
         const alert: Alert = { id: `feed-${Date.now().toString(36)}`, severity: 'warning', title: 'Feed', body: text, channels: ['telegram'], signals: [], at: Date.now(), status: 'pending-approval' };
-        await this.outbox.deliver(alert, text);
+        await this.outbox.deliver(alert, text, o);
       },
     });
     this.mcp = new McpClients(join(this.dir, 'mcp.json'));
@@ -170,6 +172,7 @@ export class HubApp {
       pipeline: (agent) =>
         runPipeline(agent, {
           offline: this.offline,
+          owmKey: this.cfg.openWeatherKey,
           metricsFor: (a) => this.hub.metricsOf(a),
           callMcp: async (server, tool, args) => {
             if (!this.mcp.status().find((s) => s.id === server)?.connected) {
@@ -277,6 +280,31 @@ export class HubApp {
   }
   haiku = () => this.cfg.brain === 'api' && !!this.cfg.anthropicKey;
 
+  // ---- OpenWeather -------------------------------------------------------
+  /** Save the user's OpenWeather key (secrets.json, mode 600). Quotes and spaces are removed; empty clears it. The key is never returned. */
+  setOpenWeatherKey(input: string): { hasKey: boolean } {
+    const key = cleanOwmKey(input);
+    if (key) this.cfg.openWeatherKey = key;
+    else delete this.cfg.openWeatherKey;
+    this.writeCfg();
+    return { hasKey: !!key };
+  }
+  openWeatherInfo() {
+    return { hasKey: !!this.cfg.openWeatherKey };
+  }
+  /** Ask OpenWeather for the current weather in Delhi to see whether the key works. */
+  async testOpenWeather(): Promise<{ ok: boolean; ms: number; error?: string }> {
+    const key = this.cfg.openWeatherKey;
+    const started = Date.now();
+    if (!key) return { ok: false, ms: 0, error: 'Add your OpenWeather key in Connections' };
+    try {
+      await owmGet(currentUrl(28.61, 77.21, key), { owmKey: key });
+      return { ok: true, ms: Date.now() - started };
+    } catch (e) {
+      return { ok: false, ms: Date.now() - started, error: redactKey(e instanceof Error ? e.message : String(e), key) };
+    }
+  }
+
   // ---- agents ----------------------------------------------------------
   addFromTemplate(templateId: string, over: Partial<Agent> = {}): Agent | null {
     const t = templateById(templateId);
@@ -328,6 +356,7 @@ export class HubApp {
       { ...a, pipeline: [clean] },
       {
         offline: this.offline,
+        owmKey: this.cfg.openWeatherKey,
         metricsFor: (x) => this.hub.metricsOf(x),
         callMcp: async (server, tool, args) => {
           if (!this.mcp.status().find((s) => s.id === server)?.connected) await this.mcp.connect(server);
@@ -618,6 +647,7 @@ export class HubApp {
       /* the server may be offline right now; polling keeps trying */
     }
     const tick = () => {
+      void this.gateway.flushDigests().then((r) => { if (r.flushed.length) this.emit('feed'); }).catch(() => {});
       void this.pollInbox().catch(() => {});
       void this.link.phones().then((p) => (this.phonesPaired = p.length)).catch(() => {});
     };
@@ -703,6 +733,7 @@ export class HubApp {
         beacon: { paired: this.phonesPaired, relayUrl: this.cfg.relayUrl },
         brain: this.brainInfo(),
         haiku: this.haiku(),
+        openWeather: this.openWeatherInfo(),
       },
       pending: this.pending,
       members: this.health.members(),
@@ -714,7 +745,7 @@ export class HubApp {
         asks: this.asks,
         allowAdultAsks: this.cfg.allowAdultAsks,
       },
-      gateway: { routes: this.gateway.routes() },
+      gateway: { routes: this.gateway.routes(), digests: this.gateway.digestStatus() },
       mcp: { servers: this.mcp.list(), status: this.mcp.status(), tools: this.mcp.tools() },
       nodeKinds: NODE_KINDS,
     };

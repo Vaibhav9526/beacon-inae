@@ -2,6 +2,28 @@ import { randomInt } from 'node:crypto';
 import { Bot } from 'grammy';
 import type { Alert } from './types.ts';
 import type { Sender } from './outbox.ts';
+import { splitHtml, stripHtml, TELEGRAM_MAX } from './digest.ts';
+
+/** Plain text split on newlines (and at the limit for very long lines). */
+function splitPlain(text: string, max: number): string[] {
+  if (text.length <= max) return [text];
+  const out: string[] = [];
+  let cur = '';
+  for (const line of text.split('\n')) {
+    for (let rest = line; ; ) {
+      const piece = rest.slice(0, max);
+      rest = rest.slice(max);
+      if (cur && cur.length + 1 + piece.length > max) {
+        out.push(cur);
+        cur = '';
+      }
+      cur += (cur ? '\n' : '') + piece;
+      if (!rest) break;
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
 
 export interface TelegramState {
   /** chat ids that finished pairing (the family group, plus anyone who joined with the code) */
@@ -66,9 +88,25 @@ export class TelegramLink implements Sender {
     this.bot = null;
   }
 
-  async send(text: string, _alert?: Alert): Promise<void> {
+  /**
+   * Send to every paired chat. With `html: true` the text is Telegram HTML (parse_mode HTML); link previews are off.
+   * Text over 4000 characters is split on newlines without breaking a tag. If Telegram cannot parse the markup the
+   * chunk is retried once as plain text with the tags stripped.
+   */
+  async send(text: string, _alert?: Alert, opts?: { html?: boolean }): Promise<void> {
     if (!this.bot) throw new Error('Telegram is not started');
     if (this.state.chats.length === 0) throw new Error('No Telegram chat is paired yet');
-    for (const id of this.state.chats) await this.bot.api.sendMessage(id, text);
+    const html = !!opts?.html;
+    const chunks = html ? splitHtml(text, TELEGRAM_MAX) : splitPlain(text, TELEGRAM_MAX);
+    for (const id of this.state.chats) {
+      for (const chunk of chunks) {
+        try {
+          await this.bot.api.sendMessage(id, chunk, { ...(html ? { parse_mode: 'HTML' as const } : {}), link_preview_options: { is_disabled: true } });
+        } catch (e) {
+          if (!html || !/can't parse entities/i.test(String((e as Error)?.message ?? e))) throw e;
+          await this.bot.api.sendMessage(id, stripHtml(chunk), { link_preview_options: { is_disabled: true } });
+        }
+      }
+    }
   }
 }

@@ -155,6 +155,10 @@ export function startHttp(app: HubApp, opts: { port?: number; token?: string; pa
 
       // ---- gateway -----------------------------------------------------------
       if (m === 'PUT' && p === '/api/gateway/routes') return send(200, { routes: app.setRoutes(cleanRoutes((await body(req)).routes)) });
+      if (m === 'POST' && p === '/api/gateway/flush') {
+        const b = await body(req);
+        return send(200, await app.gateway.flushDigests(Date.now(), { force: true, routeId: typeof b.routeId === 'string' ? b.routeId : undefined }));
+      }
       if (m === 'POST' && p === '/api/gateway/preview') return send(200, { matches: app.gateway.preview((await body(req)).item ?? {}) });
       if (m === 'POST' && p === '/api/gateway/send-test') {
         const b = await body(req);
@@ -191,8 +195,10 @@ export function startHttp(app: HubApp, opts: { port?: number; token?: string; pa
             return send(400, { error: (e as Error).message });
           }
         }
-        return send(200, { allowAdultAsks: app.state().group.allowAdultAsks, relayUrl: app.relayUrl });
+        if (b.openWeatherKey !== undefined) app.setOpenWeatherKey(String(b.openWeatherKey));
+        return send(200, { allowAdultAsks: app.state().group.allowAdultAsks, relayUrl: app.relayUrl, openWeather: app.openWeatherInfo() });
       }
+      if (m === 'POST' && p === '/api/owm/test') return send(200, await app.testOpenWeather());
       if (m === 'POST' && p === '/api/relay/check') {
         const b = await body(req);
         try {

@@ -1,7 +1,6 @@
 import { pollMs } from './lifeboat';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as Notifications from 'expo-notifications';
-import { AppState, Platform } from 'react-native';
+import { AppState } from 'react-native';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { ed25519 } from '@noble/curves/ed25519.js';
@@ -11,6 +10,7 @@ import { useSettings } from '../state/settings';
 import { CloudError } from './cloud';
 import { getIdentity } from './identity';
 import { registerPush } from './alerts';
+import { scheduleNotice } from './notificationRouting';
 import { useHubFeed, type HubFeedData } from './hubFeed';
 import { decodeWire, encodeWire, parseGroupKey, type FeedItem, type WireMessage } from './wire';
 
@@ -196,33 +196,19 @@ export function pairErrorText(e: unknown): string {
   return 'Could not reach the hub right now. Try again when you are online.';
 }
 
+/** Local notifications for hub push messages. Each one is wrapped as a feed item so the same wording rules apply. */
 async function notifyNew(items: HubMessage[]) {
-  if (Platform.OS === 'web') return;
+  const lang = useSettings.getState().lang;
   for (const m of items) {
-    try {
-      await Notifications.scheduleNotificationAsync({
-        content: { title: `Hub: ${m.severity}`, body: m.text.slice(0, 180), sound: 'default' },
-        trigger: null,
-      });
-    } catch {
-      /* notifications are best effort */
-    }
+    const item: FeedItem = { id: m.id, agentId: 'hub', agentName: 'Hub', kind: 'custom', title: m.text, body: m.text, severity: m.severity, at: m.at, tags: [] };
+    await scheduleNotice({ kind: 'feed', item }, lang);
   }
 }
 
-/** Local notifications for feed items the hub tagged 'notify'. Same shape as notifyNew. */
+/** Local notifications for feed items the hub tagged 'notify'. Each id notifies once (see scheduleNotice). */
 async function notifyFeed(items: FeedItem[]) {
-  if (Platform.OS === 'web') return;
-  for (const it of items) {
-    try {
-      await Notifications.scheduleNotificationAsync({
-        content: { title: `${it.agentName}: ${it.title}`.slice(0, 80), body: it.body.slice(0, 180), sound: 'default' },
-        trigger: null,
-      });
-    } catch {
-      /* notifications are best effort */
-    }
-  }
+  const lang = useSettings.getState().lang;
+  for (const it of items) await scheduleNotice({ kind: 'feed', item: it }, lang);
 }
 
 /** Loads the saved feed once, then saves every change. Runs before the first poll so a poll never overwrites saved data. */

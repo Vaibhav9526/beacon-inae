@@ -128,6 +128,10 @@ export default function News() {
         </Card>
       ))}
 
+      {tab !== 'reports' && (
+        <Btn label="Hub notices" icon="bell" onPress={() => router.push('/notices' as never)} />
+      )}
+
       {tab === 'reports' && (
         <>
           <Btn label={t('postReport')} icon="camera" onPress={() => router.push('/report/new' as never)} />

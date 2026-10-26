@@ -15,6 +15,8 @@ export interface RouteResult {
   alternatives: string[];
   /** Guide ids to offer as a clarifying question. Set instead of steps when the match is unsure. */
   ask?: string[];
+  /** Second-best tool calls from the model, as actions (for "or did you mean ...?"). */
+  options?: Action[];
 }
 
 export const CONFIRM_BELOW = 0.7;
@@ -144,7 +146,11 @@ export async function route(input: string, engine?: NeedleEngine | null): Promis
         if (action.type === 'guide' && confidence < CONFIRM_BELOW) return clarify([action.id, ...fallback.alternatives].slice(0, 3), confidence);
         // If Needle's pick disagrees with a strong keyword result for an emergency, surface the keyword guide as an alternative.
         const alts = fallback.action.type === 'guide' && JSON.stringify(fallback.action) !== JSON.stringify(action) ? [fallback.action.id, ...fallback.alternatives] : fallback.alternatives;
-        return { action, source: 'needle', confidence, alternatives: alts };
+        const options = r.calls
+          .slice(1, 4)
+          .map(toAction)
+          .filter((x) => x.type !== 'none' && JSON.stringify(x) !== JSON.stringify(action));
+        return { action, source: 'needle', confidence, alternatives: alts, options };
       }
     }
   } catch {

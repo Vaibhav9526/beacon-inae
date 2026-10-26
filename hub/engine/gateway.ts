@@ -1,12 +1,17 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { buildDigest, formatItemPost } from './digest.ts';
 import { chunkFeed } from './wire.ts';
 import type { Members } from './members.ts';
 import { SEVERITY_RANK, type FeedItem, type FeedKind, type GatewayRoute, type Member, type MemberRole, type Severity } from './types.ts';
 
 const SEEN_MAX = 2000;
-const TELEGRAM_CHARS = 300;
+const DIGEST_MIN = 5;
+const DIGEST_MAX = 1440;
+const DIGEST_DEFAULT = 60;
+const QUEUE_MAX = 40;
+const QUEUE_TTL_MS = 24 * 3_600_000;
 const ROUTES_MAX = 30;
 const ROUTE_TEXT_MAX = 60;
 const ROUTE_TAG_MAX = 40;
@@ -71,14 +76,25 @@ export function cleanRoutes(input: unknown): GatewayRoute[] {
     };
     if (SEVERITIES.includes(raw.notifyFrom as Severity)) route.notifyFrom = raw.notifyFrom as Severity;
     if (typeof raw.continue === 'boolean') route.continue = raw.continue;
+    if (isObject(raw.deliver)) {
+      if (raw.deliver.mode === 'digest') {
+        const n = typeof raw.deliver.everyMin === 'number' && Number.isFinite(raw.deliver.everyMin) ? raw.deliver.everyMin : DIGEST_DEFAULT;
+        route.deliver = { mode: 'digest', everyMin: clampEvery(n) };
+      } else if (raw.deliver.mode === 'instant') route.deliver = { mode: 'instant' };
+    }
     return route;
   });
 }
 
+const clampEvery = (n: number): number => Math.min(DIGEST_MAX, Math.max(DIGEST_MIN, Math.round(n)));
+const isDigest = (r: GatewayRoute): boolean => r.deliver?.mode === 'digest';
+const everyOf = (r: GatewayRoute): number => clampEvery(r.deliver?.everyMin ?? DIGEST_DEFAULT);
+
 export interface GatewayOptions {
   members: Members;
   sendToPhone(deviceId: string, blobs: string[]): Promise<void>;
-  sendTelegram?(text: string): Promise<void>;
+  /** html is true when the text is Telegram HTML (dynamic text already escaped); callers that only take text keep working. */
+  sendTelegram?(text: string, opts?: { html?: boolean }): Promise<void>;
   groupKey(): Uint8Array;
   now?: () => number;
 }
@@ -90,11 +106,32 @@ export interface DispatchResult {
   skipped: number;
   /** items matched per route id (an item counts once per route it matched) */
   byRoute: Record<string, number>;
+  /** items held for a digest route's next update (not sent yet, not counted in skipped) */
+  queued?: number;
+}
+
+export interface DigestStatus {
+  routeId: string;
+  name: string;
+  everyMin: number;
+  queued: number;
+  nextAt: number | null;
+  lastFlush: number | null;
+}
+
+export interface FlushResult {
+  flushed: Array<{ routeId: string; items: number; phones: number; telegram: boolean }>;
+}
+
+interface DigestQueue {
+  items: Array<{ item: FeedItem; queuedAt: number }>;
+  lastFlush: number | null;
 }
 
 interface State {
   routes: GatewayRoute[];
   seen: string[];
+  digests: Record<string, DigestQueue>;
 }
 
 /** Routes that decide which feed items go to which phones, and sends them encrypted through the relay. */
@@ -107,9 +144,9 @@ export class Gateway {
   ) {
     if (existsSync(file)) {
       const s = JSON.parse(readFileSync(file, 'utf8')) as Partial<State>;
-      this.state = { routes: s.routes ?? defaultRoutes(), seen: s.seen ?? [] };
+      this.state = { routes: s.routes ?? defaultRoutes(), seen: s.seen ?? [], digests: isObject(s.digests) ? (s.digests as Record<string, DigestQueue>) : {} };
     } else {
-      this.state = { routes: defaultRoutes(), seen: [] };
+      this.state = { routes: defaultRoutes(), seen: [], digests: {} };
     }
   }
 
@@ -126,6 +163,9 @@ export class Gateway {
 
   setRoutes(r: unknown): void {
     this.state.routes = cleanRoutes(r);
+    // forget the queues of routes that are gone or no longer digest routes
+    const keep = new Set(this.state.routes.filter(isDigest).map((x) => x.id));
+    for (const id of Object.keys(this.state.digests)) if (!keep.has(id)) delete this.state.digests[id];
     this.save();
   }
 
@@ -157,18 +197,21 @@ export class Gateway {
    * What would happen to an item, without sending anything: which routes match, who would get it, whether it would
    * notify and whether a Telegram copy would go. Uses exactly the matching rules of dispatch().
    */
-  preview(partial: Partial<FeedItem>): Array<{ routeId: string; routeName: string; recipients: string[]; telegram: boolean; notify: boolean }> {
+  preview(partial: Partial<FeedItem>): Array<{ routeId: string; routeName: string; recipients: string[]; telegram: boolean; notify: boolean; mode: 'instant' | 'digest'; everyMin?: number }> {
     const item: FeedItem = { id: 'preview', agentId: 'preview', agentName: 'Preview', kind: 'news', title: 'Preview', body: '', severity: 'info', at: Date.now(), tags: [], ...partial };
     const members = this.opts.members.list().filter((m) => !!m.deviceId);
-    const out: Array<{ routeId: string; routeName: string; recipients: string[]; telegram: boolean; notify: boolean }> = [];
+    const out: ReturnType<Gateway['preview']> = [];
     for (const route of this.state.routes.filter((r) => r.enabled)) {
       if (!this.matches(route, item)) continue;
       out.push({
         routeId: route.id,
         routeName: route.name,
         recipients: this.recipients(route, members).map((m) => m.name),
-        telegram: !!route.to.telegram && SEVERITY_RANK[item.severity] >= SEVERITY_RANK.warning,
+        // digest routes post to Telegram in their update, so a calm item is covered too
+        telegram: !!route.to.telegram && (isDigest(route) || SEVERITY_RANK[item.severity] >= SEVERITY_RANK.warning),
         notify: SEVERITY_RANK[item.severity] >= SEVERITY_RANK[route.notifyFrom ?? 'warning'],
+        mode: isDigest(route) ? 'digest' : 'instant',
+        ...(isDigest(route) ? { everyMin: everyOf(route) } : {}),
       });
       if (!route.continue) break;
     }
@@ -200,12 +243,23 @@ export class Gateway {
     const perPhone = new Map<string, Map<string, { item: FeedItem; notify: boolean }>>();
     const telegram: FeedItem[] = [];
     const reached = new Set<string>();
+    const held = new Set<string>();
+    const now = this.now();
 
     for (const item of fresh) {
       for (const route of enabled) {
         if (!this.matches(route, item)) continue;
         result.byRoute[route.id] = (result.byRoute[route.id] ?? 0) + 1;
         const notify = SEVERITY_RANK[item.severity] >= SEVERITY_RANK[route.notifyFrom ?? 'warning'];
+        if (isDigest(route)) {
+          this.enqueue(route, item, now);
+          held.add(item.id);
+          // a storm never waits for the timer: severe items also go out right away
+          if (item.severity !== 'severe') {
+            if (!route.continue) break;
+            continue;
+          }
+        }
         for (const m of this.recipients(route, members)) {
           const phone = perPhone.get(m.deviceId!) ?? new Map();
           perPhone.set(m.deviceId!, phone);
@@ -235,8 +289,7 @@ export class Gateway {
 
     for (const item of telegram) {
       try {
-        const text = `${item.agentName}: ${item.title}`.slice(0, TELEGRAM_CHARS);
-        await this.opts.sendTelegram!(text);
+        await this.opts.sendTelegram!(formatItemPost(item, { now }), { html: true });
         reached.add(item.id);
       } catch {
         // counted below as skipped when nothing else reached the item
@@ -245,9 +298,94 @@ export class Gateway {
 
     for (const item of fresh) {
       if (reached.has(item.id)) result.delivered++;
+      else if (held.has(item.id)) result.queued = (result.queued ?? 0) + 1;
       else result.skipped++;
     }
+    this.save();
     return result;
+  }
+
+  private now(): number {
+    return this.opts.now ? this.opts.now() : Date.now();
+  }
+
+  private enqueue(route: GatewayRoute, item: FeedItem, now: number): void {
+    const q = (this.state.digests[route.id] ??= { items: [], lastFlush: null });
+    if (q.lastFlush === null) q.lastFlush = now; // the first window starts with the first item
+    if (q.items.some((x) => x.item.id === item.id)) return;
+    q.items.push({ item, queuedAt: now });
+    q.items = q.items.filter((x) => now - x.queuedAt <= QUEUE_TTL_MS).slice(-QUEUE_MAX);
+  }
+
+  /** Per digest route: how many items wait and when the next update is due. */
+  digestStatus(): DigestStatus[] {
+    const now = this.now();
+    return this.state.routes.filter(isDigest).map((r) => {
+      const q = this.state.digests[r.id];
+      const every = everyOf(r);
+      return {
+        routeId: r.id,
+        name: r.name,
+        everyMin: every,
+        queued: (q?.items ?? []).filter((x) => now - x.queuedAt <= QUEUE_TTL_MS).length,
+        nextAt: q?.lastFlush != null ? q.lastFlush + every * 60_000 : null,
+        lastFlush: q?.lastFlush ?? null,
+      };
+    });
+  }
+
+  /**
+   * Send the queued items of every digest route that is due (or all of them / one route when forced) as ONE update each:
+   * a combined phone item and the Telegram messages. A route with nothing queued sends nothing. When every delivery of a
+   * route fails the queue is kept for the next tick; when there is nobody to send to the queue is cleared.
+   * Telegram decision: a digest is a post the family asked for on a schedule, so it goes to Telegram whenever the route
+   * has Telegram on, including calm digests where everything is info (instant routes still need warning or more).
+   */
+  async flushDigests(now: number = this.now(), opts: { force?: boolean; routeId?: string } = {}): Promise<FlushResult> {
+    const flushed: FlushResult['flushed'] = [];
+    const members = this.opts.members.list().filter((m) => !!m.deviceId);
+    for (const route of this.state.routes) {
+      if (!route.enabled || !isDigest(route) || (opts.routeId && route.id !== opts.routeId)) continue;
+      const q = this.state.digests[route.id];
+      if (!q) continue;
+      q.items = q.items.filter((x) => now - x.queuedAt <= QUEUE_TTL_MS);
+      if (!q.items.length) continue;
+      const every = everyOf(route);
+      if (!opts.force && q.lastFlush !== null && now < q.lastFlush + every * 60_000) continue;
+
+      const items = q.items.map((x) => x.item);
+      const threshold = SEVERITY_RANK[route.notifyFrom ?? 'warning'];
+      const notify = items.some((i) => SEVERITY_RANK[i.severity] >= threshold);
+      const d = buildDigest(items, { title: route.name, nextInMin: every, now, notify, routeId: route.id });
+
+      let attempted = 0;
+      let phones = 0;
+      for (const m of this.recipients(route, members)) {
+        attempted++;
+        try {
+          await this.opts.sendToPhone(m.deviceId!, chunkFeed([d.phoneItem], this.opts.groupKey()));
+          phones++;
+        } catch {
+          // one phone failing does not stop the others
+        }
+      }
+      let telegram = false;
+      if (route.to.telegram && this.opts.sendTelegram) {
+        attempted++;
+        try {
+          for (const msg of d.telegram) await this.opts.sendTelegram(msg, { html: true });
+          telegram = true;
+        } catch {
+          // reported through the result
+        }
+      }
+      if (attempted > 0 && phones === 0 && !telegram) continue; // keep the queue, try again next tick
+      q.items = [];
+      q.lastFlush = now;
+      flushed.push({ routeId: route.id, items: items.length, phones, telegram });
+    }
+    this.save();
+    return { flushed };
   }
 }
 

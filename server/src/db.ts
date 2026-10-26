@@ -45,6 +45,13 @@ CREATE TABLE IF NOT EXISTS mail (
   id TEXT PRIMARY KEY, recipient TEXT NOT NULL, sender TEXT NOT NULL, kind TEXT NOT NULL, blob TEXT NOT NULL, at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS mail_recipient ON mail (recipient, at);
+CREATE TABLE IF NOT EXISTS chat_msgs (
+  id TEXT PRIMARY KEY, room TEXT NOT NULL, ts INTEGER NOT NULL, nick TEXT NOT NULL, text TEXT NOT NULL,
+  device TEXT NOT NULL, flags TEXT NOT NULL DEFAULT '', hidden INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS chat_room_ts ON chat_msgs (room, ts);
+CREATE TABLE IF NOT EXISTS chat_reports (msg_id TEXT, reporter TEXT, reason TEXT, ts INTEGER, PRIMARY KEY (msg_id, reporter));
+CREATE TABLE IF NOT EXISTS chat_bans (device TEXT PRIMARY KEY, ts INTEGER NOT NULL);
 `;
 
 export function openDb(path: string): Db {

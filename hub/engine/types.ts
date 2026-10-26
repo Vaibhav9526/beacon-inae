@@ -220,9 +220,26 @@ export interface FeedItem {
   place?: string;
   /** small numbers worth showing, e.g. {wind_kmh: 62} */
   data?: Record<string, number | string>;
+  /** Longer text for the detail page on the phone and the big Telegram post (up to 1500 characters). Not sent in the feed batch when the phone has no room. */
+  detail?: string;
 }
 
-export type NodeKind = 'rss' | 'http-json' | 'weather' | 'aqi' | 'quake' | 'cap' | 'mcp-tool' | 'keyword-filter' | 'threshold' | 'summarize' | 'dedupe';
+export type NodeKind =
+  | 'rss'
+  | 'http-json'
+  | 'weather'
+  | 'aqi'
+  | 'quake'
+  | 'cap'
+  | 'mcp-tool'
+  | 'owm-current'
+  | 'owm-forecast'
+  | 'owm-air'
+  | 'owm-onecall'
+  | 'keyword-filter'
+  | 'threshold'
+  | 'summarize'
+  | 'dedupe';
 
 /**
  * One step of an agent's path. Source nodes (rss, http-json, weather, aqi, quake, cap, mcp-tool) produce items;
@@ -263,6 +280,8 @@ export interface GatewayRoute {
   to: { phones: 'all' | 'none'; roles?: MemberRole[]; members?: string[]; telegram?: boolean };
   /** also push a notification on the phone when the item is at least this serious (default 'warning') */
   notifyFrom?: Severity;
+  /** How items reach people: right away (default) or collected and sent together every N minutes as one update. */
+  deliver?: { mode: 'instant' | 'digest'; everyMin?: number };
   continue?: boolean;
 }
 

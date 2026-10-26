@@ -38,6 +38,8 @@ export interface FeedItem {
   tags: string[];
   place?: string;
   data?: Record<string, number | string>;
+  /** longer text for the detail page (up to 1500 characters); may be absent */
+  detail?: string;
 }
 
 export interface WireMember {

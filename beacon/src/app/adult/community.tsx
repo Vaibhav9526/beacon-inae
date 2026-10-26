@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, TextInput, View } from 'react-native';
 import { router } from 'expo-router';
 import { distanceKm } from '../../alerts/sources';
+import GlobalChat from '../../components/GlobalChat';
 import { Icon } from '../../components/Icon';
 import { Screen } from '../../components/Screen';
 import { useKeyboardOpen } from '../../components/TabBar';
@@ -9,15 +10,19 @@ import { SkeletonList } from '../../components/Skeleton';
 import { Appear, Badge, Btn, Card, Chip, Press, Row, Txt, useTheme } from '../../components/ui';
 import { useT } from '../../i18n';
 import { CHANNEL_LEVELS } from '../../mesh/geohash';
+import { deliveryText, healthDot } from '../../mesh/radioPolicy';
 import type { MsgKind, PublicMessage } from '../../mesh/node';
 import { cloud, cloudConfigured } from '../../services/cloud';
 import { getFix, lastKnownFix } from '../../services/location';
 import { useMesh } from '../../services/mesh';
 import { radius } from '../../theme';
 
-type Tab = 'chat' | 'board' | 'people' | 'sos';
+type Tab = 'chat' | 'board' | 'people' | 'sos' | 'global';
 const levelKey = ['channelBlock', 'channelNeighborhood', 'channelCity', 'channelProvince', 'channelRegion'] as const;
-const TABS: Tab[] = ['chat', 'board', 'people', 'sos'];
+const TABS: Tab[] = ['chat', 'global', 'board', 'people', 'sos'];
+
+/** A channel is related to another when one cell contains the other (block inside neighbourhood, and so on). */
+const related = (a: string, b: string) => a === b || a.startsWith(b) || b.startsWith(a);
 
 const clock = (ts: number) => new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
@@ -34,13 +39,22 @@ export default function Community() {
   // the tab bar is hidden while typing, so the composer drops the bar clearance and sits on the keyboard
   const kbOpen = useKeyboardOpen();
 
+  const [sendNote, setSendNote] = useState<string | null>(null);
   useEffect(() => {
     void mesh.start().then(() => mesh.refreshChannels()).catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // no GPS fix yet: keep trying so the channel chips fill in; until then everyone shares the 'local' room
+  useEffect(() => {
+    if (mesh.channels.length > 0 || !mesh.running) return;
+    const h = setInterval(() => void mesh.refreshChannels().catch(() => {}), 20_000);
+    return () => clearInterval(h);
+  }, [mesh.channels.length, mesh.running]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const channel = mesh.channels[level] ?? mesh.channels[0] ?? 'geo:local';
   // family drill traffic (BCN-DRILL1:) is handled by the drill screen, not shown as chat
-  const chat = useMemo(() => mesh.chat.filter((m) => (m.channel === channel || m.channel === 'geo:local') && !m.text.startsWith('BCN-DRILL1:')).sort((a, b) => a.timestamp - b.timestamp), [mesh.chat, channel]);
+  // without a fix every phone listens to everything; with one, the chosen cell plus the shared 'local' room
+  const noFix = mesh.channels.length === 0;
+  const chat = useMemo(() => mesh.chat.filter((m) => (noFix || m.channel === 'geo:local' || related(m.channel, channel)) && !m.text.startsWith('BCN-DRILL1:')).sort((a, b) => a.timestamp - b.timestamp), [mesh.chat, channel, noFix]);
   const dm = useMemo(() => (privateTo ? mesh.priv.filter((m) => m.from === privateTo) : []), [mesh.priv, privateTo]);
 
   // posts other gateways uploaded to the server (so people beyond Bluetooth range still see them)
@@ -74,11 +88,16 @@ export default function Community() {
       .sort((a, b) => b.timestamp - a.timestamp);
   }, [mesh.board, serverBoard]);
 
-  const send = () => {
+  const send = async () => {
     const v = text.trim();
     if (!v) return;
+    setSendNote(null);
+    if (!mesh.running) await mesh.start().catch(() => {});
     if (privateTo) mesh.sendPrivate(privateTo, v);
-    else mesh.sendChat(channel, v, tab === 'board' ? kind : 'chat');
+    else if (mesh.sendChat(channel, v, tab === 'board' ? kind : 'chat') === null) {
+      setSendNote('Not sent: the mesh is not running. Open Mesh status. · भेजा नहीं गया: मेश चालू नहीं है।');
+      return;
+    }
     setText('');
     setTimeout(() => scroll.current?.scrollToEnd({ animated: true }), 100);
   };
@@ -109,6 +128,11 @@ export default function Community() {
             {clock(m.timestamp)}
           </Txt>
         </View>
+        {mine && mesh.delivery[m.id] ? (
+          <Txt size={10.5} color={p.muted} style={{ alignSelf: 'flex-end', marginTop: 2, textAlign: 'right' }}>
+            {deliveryText(mesh.delivery[m.id].neighbours).join(' · ')}
+          </Txt>
+        ) : null}
       </Appear>
     );
   };
@@ -121,13 +145,14 @@ export default function Community() {
             <TextTab
               key={k}
               active={tab === k}
-              label={k === 'chat' ? t('chat') : k === 'board' ? t('resourceBoard') : k === 'people' ? t('peopleNearby') : `SOS ${mesh.sos.length}`}
+              label={k === 'chat' ? t('chat') : k === 'global' ? 'Global / वैश्विक' : k === 'board' ? t('resourceBoard') : k === 'people' ? t('peopleNearby') : `SOS ${mesh.sos.length}`}
               onPress={() => {
                 setTab(k);
                 setPrivateTo(null);
               }}
             />
           ))}
+          <MeshChip />
           {tab === 'people' ? (
             <Press accessibilityRole="link" onPress={() => router.push('/mesh')} style={{ paddingVertical: 6, marginLeft: 'auto' }}>
               <Txt size={12.5} color={p.muted}>
@@ -141,6 +166,14 @@ export default function Community() {
             {mesh.radioAvailable ? 'Messages hop between phones over Bluetooth' : t('offlineNoMesh')}
           </Txt>
         ) : null}
+        {tab === 'chat' && mesh.radioAvailable && mesh.radioError ? (
+          <Press accessibilityRole="link" onPress={() => router.push('/meshtest')}>
+            <Txt size={12} color={p.tint.yellow.ink}>
+              {mesh.radioError} · Fix it · ठीक करें
+            </Txt>
+          </Press>
+        ) : null}
+        {sendNote ? <Txt size={12} color={p.tint.pink.ink}>{sendNote}</Txt> : null}
         {tab === 'chat' && !privateTo ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }}>
             {CHANNEL_LEVELS.map((l, i) => {
@@ -163,7 +196,8 @@ export default function Community() {
         ) : null}
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={90}>
+      {tab === 'global' ? <GlobalChat /> : null}
+      <KeyboardAvoidingView style={{ flex: tab === 'global' ? 0 : 1, display: tab === 'global' ? 'none' : 'flex' }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={90}>
         <ScrollView ref={scroll} style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 8, gap: 8 }} onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: false })} showsVerticalScrollIndicator={false}>
           {tab === 'chat' && !privateTo ? (chat.length === 0 ? <Empty text="No messages yet. Say hello." /> : chat.map((m, i) => bubble(m, chat[i - 1]?.from === m.from))) : null}
 
@@ -242,16 +276,38 @@ export default function Community() {
           {tab === 'sos' ? <SosHeard /> : null}
         </ScrollView>
 
-        {tab !== 'people' && tab !== 'sos' ? (
+        {tab !== 'people' && tab !== 'sos' && tab !== 'global' ? (
           <Row style={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: 12, gap: 8 }}>
-            <TextInput value={text} onChangeText={setText} onSubmitEditing={send} placeholder={t('typeMessage')} placeholderTextColor={p.muted} style={{ flex: 1, height: 42, backgroundColor: p.card, borderWidth: 1, borderColor: p.border, borderRadius: 21, paddingHorizontal: 16, color: p.text, fontSize: 14, fontFamily: 'Poppins_400Regular', paddingVertical: 0 }} />
-            <Press accessibilityLabel={t('send')} onPress={send} disabled={!text.trim()} style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: p.accent, alignItems: 'center', justifyContent: 'center', opacity: text.trim() ? 1 : 0.4 }}>
+            <TextInput value={text} onChangeText={setText} onSubmitEditing={() => void send()} placeholder={t('typeMessage')} placeholderTextColor={p.muted} style={{ flex: 1, height: 42, backgroundColor: p.card, borderWidth: 1, borderColor: p.border, borderRadius: 21, paddingHorizontal: 16, color: p.text, fontSize: 14, fontFamily: 'Poppins_400Regular', paddingVertical: 0 }} />
+            <Press accessibilityLabel={t('send')} onPress={() => void send()} disabled={!text.trim()} style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: p.accent, alignItems: 'center', justifyContent: 'center', opacity: text.trim() ? 1 : 0.4 }}>
               <Icon name="send" size={16} color={p.onAccent} />
             </Press>
           </Row>
         ) : null}
       </KeyboardAvoidingView>
     </Screen>
+  );
+}
+
+/** Small 'Mesh status' chip: a red / amber / green dot that opens the on-device self-test. */
+function MeshChip() {
+  const { p } = useTheme();
+  const status = useMesh((s) => s.status);
+  const links = useMesh((s) => s.neighbours);
+  const dot = healthDot({ status, links });
+  const color = dot === 'green' ? p.tint.green.ink : dot === 'amber' ? p.tint.yellow.ink : p.tint.pink.ink;
+  return (
+    <Press
+      accessibilityRole="link"
+      accessibilityLabel="Mesh status"
+      onPress={() => router.push('/meshtest')}
+      style={{ marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill, borderWidth: 1, borderColor: p.border }}
+    >
+      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color }} />
+      <Txt size={11.5} color={p.muted}>
+        Mesh status · मेश स्थिति
+      </Txt>
+    </Press>
   );
 }
 

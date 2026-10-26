@@ -15,6 +15,7 @@ import {
   type SafeMessage,
   type SosMessage,
 } from '../mesh/node';
+import { reduceRadioState, type MeshStatus } from '../mesh/radioPolicy';
 import { MemoryNetwork } from '../mesh/transport';
 import { useSettings } from '../state/settings';
 import { getIdentity } from './identity';
@@ -36,7 +37,11 @@ export interface MeshState {
   running: boolean;
   /** false in Expo Go / web / emulators without BLE: the UI still works, it just has no radio */
   radioAvailable: boolean;
-  status: 'idle' | 'starting' | 'running' | 'no-permission' | 'bluetooth-off' | 'unsupported' | 'error';
+  status: MeshStatus;
+  /** why the radio is not fully working (shown by the Chat tab and /meshtest); null when fine */
+  radioError: string | null;
+  /** what happened to messages you sent: how many phones were in range at that moment */
+  delivery: Record<string, { neighbours: number; at: number }>;
   myId: string;
   neighbours: number;
   peers: PeerInfo[];
@@ -53,7 +58,8 @@ export interface MeshState {
   sosActive: boolean;
   start(): Promise<void>;
   stop(): Promise<void>;
-  sendChat(channel: string, text: string, kind?: MsgKind): void;
+  /** returns the message id, or null when the mesh is not running */
+  sendChat(channel: string, text: string, kind?: MsgKind): string | null;
   sendPrivate(to: string, text: string): void;
   sendSos(note?: string): Promise<string>;
   cancelSos(): void;
@@ -66,21 +72,57 @@ export interface MeshState {
   setPosition(lat: number, lon: number): void;
 }
 
+export type MeshPerm = 'nearby' | 'notifications' | 'location';
+export type PermResult = 'granted' | 'denied' | 'blocked';
+const P = PermissionsAndroid.PERMISSIONS;
+const api = () => Number(Platform.Version);
+
+const nearbyList = () => (api() >= 31 ? [P.BLUETOOTH_SCAN, P.BLUETOOTH_ADVERTISE, P.BLUETOOTH_CONNECT] : [P.ACCESS_FINE_LOCATION]);
+
+/** Current state of every permission the mesh cares about. */
+export async function meshPermissions(): Promise<Record<MeshPerm, boolean>> {
+  if (Platform.OS !== 'android') return { nearby: false, notifications: false, location: false };
+  const all = async (l: readonly (typeof P)[keyof typeof P][]) => (await Promise.all(l.map((x) => PermissionsAndroid.check(x)))).every(Boolean);
+  return {
+    nearby: await all(nearbyList()),
+    notifications: api() < 33 ? true : await PermissionsAndroid.check(P.POST_NOTIFICATIONS),
+    location: await PermissionsAndroid.check(P.ACCESS_FINE_LOCATION),
+  };
+}
+
+/** Asks for one group. 'blocked' means Android will not show the dialog again: send the person to Settings. */
+export async function requestMeshPermission(kind: MeshPerm): Promise<PermResult> {
+  if (Platform.OS !== 'android') return 'denied';
+  const list = kind === 'nearby' ? nearbyList() : kind === 'location' ? [P.ACCESS_FINE_LOCATION] : api() >= 33 ? [P.POST_NOTIFICATIONS] : [];
+  if (list.length === 0) return 'granted';
+  const res = await PermissionsAndroid.requestMultiple(list);
+  const vals = list.map((x) => res[x]);
+  if (vals.every((v) => v === PermissionsAndroid.RESULTS.GRANTED)) return 'granted';
+  return vals.some((v) => v === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) ? 'blocked' : 'denied';
+}
+
+/**
+ * Android 12+: one "Nearby devices" dialog (scan, advertise, connect) is all the radio needs. Notifications (so the
+ * foreground service notice is visible) and location (for geohash channels only) are asked afterwards and never block.
+ */
 async function ensurePermissions(): Promise<boolean> {
   if (Platform.OS !== 'android') return false;
-  const api = Number(Platform.Version);
-  const wanted =
-    api >= 31
-      ? [PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN, PermissionsAndroid.PERMISSIONS.BLUETOOTH_ADVERTISE, PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT, PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION]
-      : [PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION];
-  const res = await PermissionsAndroid.requestMultiple(wanted);
-  return wanted.every((p) => res[p] === PermissionsAndroid.RESULTS.GRANTED);
+  const nearby = (await meshPermissions()).nearby || (await requestMeshPermission('nearby')) === 'granted';
+  if (!nearby) return false;
+  const have = await meshPermissions();
+  if (!have.notifications) await requestMeshPermission('notifications').catch(() => {});
+  if (api() >= 31 && !have.location) await requestMeshPermission('location').catch(() => {});
+  return true;
 }
+
+export const getBleTransport = () => transport;
 
 export const useMesh = create<MeshState>((set, get) => ({
   running: false,
   radioAvailable: BleTransport.available,
   status: 'idle',
+  radioError: null,
+  delivery: {},
   myId: '',
   neighbours: 0,
   peers: [],
@@ -106,11 +148,17 @@ export const useMesh = create<MeshState>((set, get) => ({
       let t: BleTransport | null = null;
       if (BleTransport.available) {
         if (!(await ensurePermissions())) {
-          set({ status: 'no-permission' });
+          set({ status: 'no-permission', radioError: 'Allow "Nearby devices" for Beacon · Beacon को "आस-पास के डिवाइस" की अनुमति दें' });
           startPromise = null;
           return;
         }
         t = new BleTransport();
+        t.onState((st) => {
+          const cur = get();
+          const v = reduceRadioState({ status: cur.status, error: cur.radioError }, st);
+          set({ status: v.status, radioError: v.error });
+        });
+        t.watch(() => node && set({ neighbours: node.neighbours }));
       }
       transport = t;
       // Without a radio (Expo Go, web, emulator) run the node on an isolated in-memory link so the UI is usable.
@@ -161,9 +209,9 @@ export const useMesh = create<MeshState>((set, get) => ({
 
       try {
         await n.start();
-        set({ running: true, status: BleTransport.available ? 'running' : 'unsupported' });
-      } catch {
-        set({ status: 'error' });
+        set((s) => ({ running: true, status: s.status === 'starting' ? (BleTransport.available ? 'running' : 'unsupported') : s.status }));
+      } catch (e) {
+        set({ status: 'error', radioError: e instanceof Error ? e.message : 'The mesh could not start' });
         startPromise = null;
       }
       // keep neighbour count fresh (links change without a peer event)
@@ -179,12 +227,21 @@ export const useMesh = create<MeshState>((set, get) => ({
     snapshotTimer = neighbourTimer = null;
     await node?.stop();
     node = null;
+    transport = null;
     startPromise = null;
-    set({ running: false, status: 'idle' });
+    set({ running: false, status: 'idle', radioError: null, neighbours: 0, peers: [] });
   },
 
   sendChat(channel, text, kind = 'chat') {
-    node?.sendPublic(channel, text, kind);
+    if (!node) return null;
+    const id = node.sendPublic(channel, text, kind);
+    const neighbours = node.neighbours;
+    set((s) => {
+      const keys = Object.keys(s.delivery);
+      const keep = keys.length > 100 ? Object.fromEntries(Object.entries(s.delivery).slice(-80)) : s.delivery;
+      return { delivery: { ...keep, [id]: { neighbours, at: Date.now() } } };
+    });
+    return id;
   },
 
   sendPrivate(to, text) {
